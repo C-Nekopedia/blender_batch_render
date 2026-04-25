@@ -10,21 +10,9 @@ for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":34567 " ^| findstr "LISTENI
 )
 timeout /t 3 /nobreak >nul
 
-REM Start new
-start /B pythonw server/run_production.py
+echo   WebUI: http://localhost:34567
+echo   Close this window or press Ctrl+C to stop the server.
+echo.
 
-REM Wait for server to bind port
-timeout /t 4 /nobreak >nul
-
-netstat -an | findstr ":34567 " | findstr "LISTENING" >nul
-if %errorlevel% equ 0 (
-    echo [restart] Server restarted.
-    echo   WebUI: http://localhost:34567
-) else (
-    echo [restart] Server may have failed to start.
-    if exist logs\error.log (
-        echo   --- last 5 lines of logs\error.log ---
-        powershell -Command "Get-Content logs\error.log -Tail 5"
-    )
-)
+python server/run_production.py
 pause
