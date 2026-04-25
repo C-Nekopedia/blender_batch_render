@@ -50,6 +50,22 @@ if sys.platform == "win32":
     import tkinter as tk
     from tkinter import filedialog
 
+    # Register a console control handler to kill orphaned Blender when the
+    # user closes the console window (CTRL_CLOSE_EVENT).  Windows gives us
+    # ~5 s before forcibly terminating the process.
+    _kernel32 = ctypes.windll.kernel32
+    _console_handler_t = ctypes.CFUNCTYPE(ctypes.c_bool, ctypes.c_ulong)
+
+    @_console_handler_t
+    def _on_console_close(ctrl_type: int) -> bool:
+        """Handle CTRL_CLOSE_EVENT — kill orphan Blender before exit."""
+        if ctrl_type == 2:
+            _kill_orphan_blender()
+            return True  # signal handled; Windows terminates us afterwards
+        return False
+
+    _kernel32.SetConsoleCtrlHandler(_on_console_close, 1)
+
 
 # ---------------------------------------------------------------------------
 # Render state machine
