@@ -1,5 +1,7 @@
 # Blender Batch Render Tool
 
+[**中文**](README.zh-CN.md) | **English**
+
 A browser-based tool for batch-rendering Blender scenes remotely. Queues multiple frames into batches, restarts Blender when memory is high, and streams real-time progress to any device with a browser.
 
 <div align="center">

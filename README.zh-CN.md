@@ -2,6 +2,8 @@
 
 基于浏览器的 Blender 批量渲染工具。将多帧分批排队渲染，内存过高时自动重启 Blender，并通过 WebSocket 向任意设备实时推送进度。
 
+**English** | [**中文**](README.zh-CN.md)
+
 <div align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://cdn.jsdelivr.net/gh/C-Nekopedia/blender_batch_render@master/ui_preview/pc_preview.png">
@@ -147,7 +149,7 @@ Blender_Bacth_Render_Tool/
 ## 常见问题
 
 **渲染日志无输出？**
-检查 WebSocket 连接状态。前端右上角控制台标题旁显示连接状态。如断开，服务端可能重启中，等待数秒自动重连。
+检查 WebSocket 连接状态。如断开，服务端可能重启中，等待数秒自动重连。
 
 **手机端看不到文件浏览按钮？**
 远程访问时文件浏览（本地文件对话框）自动隐藏，需手动输入路径。
