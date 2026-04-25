@@ -5,7 +5,16 @@ Use this instead of direct uvicorn calls for production/service mode.
 On Windows, binding to '::' with IPV6_V6ONLY=0 still doesn't accept IPv4
 in practice, so we create separate IPv4 and IPv6 sockets.
 """
-import platform
+"""Production entry point for Blender Batch Render.
+Starts uvicorn with dual-stack (IPv4 + IPv6) support on Windows.
+Use this instead of direct uvicorn calls for production/service mode.
+
+On Windows, binding to '::' with IPV6_V6ONLY=0 still doesn't accept IPv4
+in practice, so we create separate IPv4 and IPv6 sockets.
+
+Important: uvicorn.Config must NOT set host/port when passing custom sockets,
+otherwise uvicorn will try to bind a second listener and fail with EADDRINUSE.
+"""
 import socket
 import sys
 from pathlib import Path
@@ -22,19 +31,17 @@ PORT = 34567
 
 
 def _create_sockets() -> list[socket.socket]:
-    """Create one IPv4 and one IPv6 socket, both bound to PORT.
-    On Windows, separate sockets are needed for proper dual-stack.
-    """
+    """Create one IPv4 and one IPv6 socket, both bound to 34567."""
     sockets: list[socket.socket] = []
 
-    # IPv4 socket
+    # IPv4 socket (0.0.0.0)
     sock4 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock4.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock4.bind(("0.0.0.0", PORT))
     sock4.set_inheritable(True)
     sockets.append(sock4)
 
-    # IPv6 socket (IPV6_V6ONLY=1 so both sockets can coexist on the same port)
+    # IPv6 socket (::) with IPV6_V6ONLY=1 so both sockets coexist on the same port
     sock6 = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
     sock6.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock6.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
@@ -50,8 +57,6 @@ if __name__ == "__main__":
 
     config = uvicorn.Config(
         "server.main:app",
-        host=HOST,
-        port=PORT,
         log_level="info",
     )
 
