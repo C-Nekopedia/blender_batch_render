@@ -1,20 +1,11 @@
 """Production entry point for Blender Batch Render.
 Starts uvicorn with dual-stack (IPv4 + IPv6) support on Windows.
-Use this instead of direct uvicorn calls for production/service mode.
-
-On Windows, binding to '::' with IPV6_V6ONLY=0 still doesn't accept IPv4
-in practice, so we create separate IPv4 and IPv6 sockets.
-"""
-"""Production entry point for Blender Batch Render.
-Starts uvicorn with dual-stack (IPv4 + IPv6) support on Windows.
-Use this instead of direct uvicorn calls for production/service mode.
-
-On Windows, binding to '::' with IPV6_V6ONLY=0 still doesn't accept IPv4
-in practice, so we create separate IPv4 and IPv6 sockets.
+Use this instead of direct uvicorn calls for production mode.
 
 Important: uvicorn.Config must NOT set host/port when passing custom sockets,
 otherwise uvicorn will try to bind a second listener and fail with EADDRINUSE.
 """
+import logging
 import socket
 import sys
 from pathlib import Path
@@ -28,6 +19,43 @@ import uvicorn
 
 HOST = "::"
 PORT = 34567
+LOGS_DIR = Path(__file__).parent.parent / "logs"
+
+
+def _setup_logging():
+    """Configure uvicorn to write logs to files instead of console.
+    This is needed when running via pythonw.exe (no console window).
+    """
+    LOGS_DIR.mkdir(exist_ok=True)
+    return {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "default": {"format": "%(levelname)s: %(message)s"},
+            "access": {"format": "%(asctime)s %(message)s", "datefmt": "%Y-%m-%d %H:%M:%S"},
+        },
+        "handlers": {
+            "default": {
+                "class": "logging.handlers.RotatingFileHandler",
+                "filename": str(LOGS_DIR / "error.log"),
+                "maxBytes": 5 * 1024 * 1024,
+                "backupCount": 2,
+                "formatter": "default",
+            },
+            "access": {
+                "class": "logging.handlers.RotatingFileHandler",
+                "filename": str(LOGS_DIR / "access.log"),
+                "maxBytes": 5 * 1024 * 1024,
+                "backupCount": 2,
+                "formatter": "access",
+            },
+        },
+        "loggers": {
+            "uvicorn": {"handlers": ["default"], "level": "INFO", "propagate": False},
+            "uvicorn.error": {"handlers": ["default"], "level": "INFO", "propagate": False},
+            "uvicorn.access": {"handlers": ["access"], "level": "INFO", "propagate": False},
+        },
+    }
 
 
 def _create_sockets() -> list[socket.socket]:
@@ -57,6 +85,7 @@ if __name__ == "__main__":
 
     config = uvicorn.Config(
         "server.main:app",
+        log_config=_setup_logging(),
         log_level="info",
     )
 

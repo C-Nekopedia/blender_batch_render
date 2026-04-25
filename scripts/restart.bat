@@ -11,11 +11,11 @@ REM Wait for sockets to release
 timeout /t 3 /nobreak >nul
 
 REM Start new
-start "Blender Batch Render" /MIN python server/run_production.py
+start "Blender Batch Render" /MIN pythonw server/run_production.py
 
 REM Wait briefly then check
 timeout /t 3 /nobreak >nul
-tasklist /FI "WINDOWTITLE eq Blender Batch Render" 2>nul | findstr /i "python" >nul
+tasklist /FI "WINDOWTITLE eq Blender Batch Render" 2>nul | findstr /i "pythonw" >nul
 if %errorlevel% equ 0 (
     echo [restart] Server restarted.
     echo   WebUI: http://localhost:34567
