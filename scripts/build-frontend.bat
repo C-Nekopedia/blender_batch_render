@@ -3,6 +3,10 @@ chcp 65001 >nul
 cd /d "%~dp0.."
 set ROOT=%CD%
 
+REM /q flag suppresses the final pause (used when called from setup.bat)
+set QUIET=0
+if /i "%1"=="/q" set QUIET=1
+
 REM Skip build if dist already exists
 if exist "apps\web\dist\index.html" (
     echo [build] Frontend already built, skipping.
@@ -99,3 +103,4 @@ if %errorlevel% neq 0 (
 
 cd "%ROOT%"
 echo [build] Done. Frontend built to apps\web\dist\
+if %QUIET% equ 0 pause

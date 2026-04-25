@@ -19,7 +19,7 @@ echo.
 
 REM Step 2: Build frontend (auto-installs Node.js/pnpm if missing)
 echo [2/4] Building frontend...
-call scripts\build-frontend.bat
+call scripts\build-frontend.bat /q
 if %errorlevel% neq 0 (
     echo FAILED. See error messages above.
     pause & exit /b 1
