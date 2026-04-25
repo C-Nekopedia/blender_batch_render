@@ -3,6 +3,19 @@ chcp 65001 >nul
 cd /d "%~dp0.."
 set ROOT=%CD%
 
+REM Check for Administrator privileges (required for service registration)
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    echo ========================================
+    echo  ERROR: Administrator privileges required.
+    echo ========================================
+    echo.
+    echo  Please right-click this script and select
+    echo  "Run as administrator", then try again.
+    echo.
+    pause & exit /b 1
+)
+
 echo ========================================
 echo  Blender Batch Render - One-Click Setup
 echo ========================================

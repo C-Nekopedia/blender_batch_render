@@ -3,6 +3,14 @@ chcp 65001 >nul
 cd /d "%~dp0.."
 set ROOT=%CD%
 
+REM Check for Administrator privileges
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [install] ERROR: Administrator privileges required.
+    echo   Right-click this script and select "Run as administrator".
+    pause & exit /b 1
+)
+
 REM Check NSSM exists
 if not exist "scripts\nssm.exe" (
     echo [install] NSSM not found. Downloading...
@@ -52,6 +60,11 @@ netsh advfirewall firewall add rule name="Blender Batch Render" dir=in action=al
 REM Register service
 echo [install] Registering service 'BlenderBatchRender'...
 scripts\nssm.exe install BlenderBatchRender "%PYTHON_PATH%" "server/run_production.py"
+if %errorlevel% neq 0 (
+    echo [install] NSSM install failed.
+    pause & exit /b 1
+)
+
 scripts\nssm.exe set BlenderBatchRender AppDirectory "%ROOT%"
 scripts\nssm.exe set BlenderBatchRender AppStdout "%ROOT%\logs\access.log"
 scripts\nssm.exe set BlenderBatchRender AppStderr "%ROOT%\logs\error.log"
@@ -59,8 +72,6 @@ scripts\nssm.exe set BlenderBatchRender AppRotateFiles 1
 scripts\nssm.exe set BlenderBatchRender AppRotateOnline 1
 scripts\nssm.exe set BlenderBatchRender AppRotateSeconds 86400
 scripts\nssm.exe set BlenderBatchRender Start SERVICE_AUTO_START
-REM 10-second boot delay so Python/network stack is ready
-scripts\nssm.exe set BlenderBatchRender AppDelay 10000
 
 REM Reload environment (ensure NSSM picks up PATH for python)
 echo [install] Verifying Python...
