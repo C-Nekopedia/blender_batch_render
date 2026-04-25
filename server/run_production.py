@@ -1,0 +1,59 @@
+"""Production entry point for Blender Batch Render.
+Starts uvicorn with dual-stack (IPv4 + IPv6) support on Windows.
+Use this instead of direct uvicorn calls for production/service mode.
+
+On Windows, binding to '::' with IPV6_V6ONLY=0 still doesn't accept IPv4
+in practice, so we create separate IPv4 and IPv6 sockets.
+"""
+import platform
+import socket
+import sys
+from pathlib import Path
+
+# Add project root to sys.path so `import server.main` works
+_root = str(Path(__file__).parent.parent)
+if _root not in sys.path:
+    sys.path.insert(0, _root)
+
+import uvicorn
+
+HOST = "::"
+PORT = 34567
+
+
+def _create_sockets() -> list[socket.socket]:
+    """Create one IPv4 and one IPv6 socket, both bound to PORT.
+    On Windows, separate sockets are needed for proper dual-stack.
+    """
+    sockets: list[socket.socket] = []
+
+    # IPv4 socket
+    sock4 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock4.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock4.bind(("0.0.0.0", PORT))
+    sock4.set_inheritable(True)
+    sockets.append(sock4)
+
+    # IPv6 socket (IPV6_V6ONLY=1 so both sockets can coexist on the same port)
+    sock6 = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+    sock6.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock6.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+    sock6.bind((HOST, PORT))
+    sock6.set_inheritable(True)
+    sockets.append(sock6)
+
+    return sockets
+
+
+if __name__ == "__main__":
+    sockets = _create_sockets()
+
+    config = uvicorn.Config(
+        "server.main:app",
+        host=HOST,
+        port=PORT,
+        log_level="info",
+    )
+
+    server = uvicorn.Server(config)
+    server.run(sockets=sockets)
