@@ -78,12 +78,25 @@ cd apps/web && pnpm dev
 ## Service Management
 
 ```bat
-scripts\install-service.bat    # Install/reinstall Windows service
-scripts\remove-service.bat     # Remove Windows service
-scripts\build-frontend.bat     # Rebuild frontend after changes
+scripts\install-service.bat     # Install/reinstall Windows service
+scripts\remove-service.bat      # Remove Windows service
+scripts\start.bat               # Start the service
+scripts\stop.bat                # Stop the service
+scripts\restart.bat             # Restart the service
+scripts\build-frontend.bat      # Rebuild frontend after changes
+scripts\setup.bat               # One-click: install deps, build frontend, register service
 ```
 
-The service is registered as `BlenderBatchRender` with NSSM. It runs as `run_production.py` (dual-stack IPv4/IPv6 socket).
+The service is registered as `BlenderBatchRender` with NSSM. It runs as `python server/run_production.py` (dual-stack IPv4/IPv6 socket).
+
+For development (hot-reload frontend), use one of:
+
+```bash
+scripts\dev.bat               # Windows cmd launcher
+powershell scripts\dev.ps1    # PowerShell launcher
+bash scripts/dev.sh           # Git Bash launcher
+pnpm dev                      # Via pnpm (requires Node.js/pnpm)
+```
 
 ## Architecture
 
@@ -98,11 +111,42 @@ Blender_Bacth_Render_Tool/
 │       ├── App.vue            # Main layout with sidebar navigation
 │       ├── components/        # UI components
 │       └── composables/       # Terminal & settings state
-├── scripts/                   # Batch scripts for setup & service management
+├── scripts/                   # Batch scripts for setup, service, and dev management
+│   ├── setup.bat              # One-click install
+│   ├── install-service.bat    # NSSM service registration
+│   ├── remove-service.bat     # Service uninstall
+│   ├── start.bat / stop.bat / restart.bat  # Service control
+│   ├── build-frontend.bat     # Frontend rebuild
+│   ├── dev.bat / dev.ps1 / dev.sh  # Dev server launchers
+│   └── nssm.exe               # NSSM service manager (auto-downloaded)
 └── docs/                      # Design specifications
 ```
 
 The render engine runs Blender as a subprocess in background mode (`-b`), parses stdout for frame/sample progress, and pushes updates to all connected WebSocket clients. System memory is monitored per-batch and triggers a Blender restart if a configurable threshold is exceeded.
+
+## API Overview
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/ws` | WebSocket | Real-time render progress and system stats push |
+| `/render/start` | POST | Start rendering |
+| `/render/stop` | POST | Stop rendering |
+| `/api/settings` | GET/POST | Read/write render settings |
+| `/api/system-stats` | GET | CPU/GPU/memory/VRAM usage |
+| `/api/hardware-info` | GET | Hardware configuration (CPU, GPU, motherboard, RAM, OS) |
+| `/api/network-info` | GET | Network addresses (IPv4, IPv6, Tailscale) |
+| `/api/browse-file` | GET | Open native file dialog (local only) |
+
+## FAQ
+
+**No render log output?**
+Check the WebSocket connection status. If disconnected, the server may be restarting; it will reconnect automatically within a few seconds.
+
+**No file browse button on mobile/remote?**
+The file dialog (local-only feature) is hidden when accessing remotely. Enter file paths manually.
+
+**Service fails to start?**
+Check `logs\error.log` for details. Common causes: incorrect Python path, missing Blender executable.
 
 ## License
 

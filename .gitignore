@@ -15,3 +15,5 @@ logs/
 *.zip
 References/
 docs/
+scripts/tmp/
+scripts/nssm.zip

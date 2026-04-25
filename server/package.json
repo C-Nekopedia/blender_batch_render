@@ -1,6 +1,0 @@
-{
-  "name": "server",
-  "scripts": {
-    "dev": "python -m uvicorn server.main:app --app-dir .. --reload --host 127.0.0.1 --port 34567"
-  }
-}
