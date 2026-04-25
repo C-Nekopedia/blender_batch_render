@@ -24,7 +24,7 @@
 - **内存感知** — 监控系统内存使用率，超过阈值自动重启
 - **Web 界面** — Vue 3 前端，包含终端控制台、进度追踪和系统状态面板
 - **远程访问** — 通过 IPv6（直连）或 Tailscale（回退）从任意设备连接
-- **Windows 服务** — 以后台服务运行，支持开机自启和崩溃恢复
+- **后台进程** — 以后台窗口运行，无需安装，即开即用
 
 ## 环境要求
 
@@ -35,13 +35,13 @@
 ## 快速开始
 
 ```bash
-# 一键安装 — 自动安装 Python 依赖、构建前端、注册系统服务
+# 一键安装 — 自动安装 Python 依赖、构建前端、启动服务器
 scripts\setup.bat
 ```
 
-安装完成后会自动启动服务并打开 Web 界面 `http://localhost:34567`。
+安装完成后自动打开 Web 界面 `http://localhost:34567`。
 
-服务开机自启。在局域网内任意设备打开以下地址即可访问：
+在局域网内任意设备打开以下地址即可访问：
 
 - **本机**: `http://localhost:34567`
 - **局域网**: `http://<你的局域网IP>:34567`
@@ -85,23 +85,21 @@ pnpm dev
 
 上述方式分别启动后端（端口 34567）和前端开发服务器（端口 5173），前端自动代理 API 和 WebSocket 请求到后端。
 
-## 服务管理
+## 服务器管理
 
 ```bat
-scripts\install-service.bat     # 安装/重装 Windows 服务
-scripts\remove-service.bat      # 卸载 Windows 服务
-scripts\start.bat               # 启动服务
-scripts\stop.bat                # 停止服务
-scripts\restart.bat             # 重启服务
+scripts\setup.bat               # 一键安装：依赖 + 构建 + 启动
+scripts\start.bat               # 启动服务器（后台窗口）
+scripts\stop.bat                # 停止服务器
+scripts\restart.bat             # 重启服务器
 scripts\build-frontend.bat      # 重新构建前端（修改前端后执行）
-scripts\setup.bat               # 一键安装：依赖 + 构建 + 注册服务
 ```
 
-服务名称为 `BlenderBatchRender`，由 NSSM 管理。以 `python server/run_production.py` 命令运行，支持 IPv4/IPv6 双栈。
+服务器以 `python server/run_production.py` 命令运行，支持 IPv4/IPv6 双栈。
 
 ### 端口与防火墙
 
-服务监听 `34567` 端口。安装脚本会自动添加 Windows 防火墙放行规则。如需手动添加：
+服务监听 `34567` 端口。如需手动添加防火墙放行规则：
 
 ```bat
 netsh advfirewall firewall add rule name="Blender Batch Render" dir=in action=allow protocol=TCP localport=34567
@@ -120,14 +118,11 @@ Blender_Bacth_Render_Tool/
 │       ├── App.vue            # 主布局，含侧边栏导航
 │       ├── components/        # UI 组件
 │       └── composables/       # 终端与设置状态管理
-├── scripts/                   # 安装、服务管理、开发脚本
+├── scripts/                   # 安装、控制、开发脚本
 │   ├── setup.bat              # 一键安装
-│   ├── install-service.bat    # NSSM 服务注册
-│   ├── remove-service.bat     # 服务卸载
-│   ├── start.bat / stop.bat / restart.bat  # 服务控制
+│   ├── start.bat / stop.bat / restart.bat  # 服务器控制
 │   ├── build-frontend.bat     # 前端构建
-│   ├── dev.bat / dev.ps1 / dev.sh  # 开发服务器启动
-│   └── nssm.exe               # NSSM 服务管理器（自动下载）
+│   └── dev.bat / dev.ps1 / dev.sh  # 开发服务器启动
 └── server/requirements.txt    # Python 依赖清单
 ```
 
@@ -154,7 +149,7 @@ Blender_Bacth_Render_Tool/
 **手机端看不到文件浏览按钮？**
 远程访问时文件浏览（本地文件对话框）自动隐藏，需手动输入路径。
 
-**服务无法启动？**
+**服务器无法启动？**
 检查 `logs\error.log` 查看详细错误信息。常见原因：Python 路径不正确、Blender 路径不存在。
 
 ## 许可证

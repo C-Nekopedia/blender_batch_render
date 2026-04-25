@@ -1,10 +1,18 @@
 @echo off
 chcp 65001 >nul
-echo [stop] Stopping Blender Batch Render service...
-net stop BlenderBatchRender 2>nul
-if %errorlevel% equ 2 (
-    echo [stop] Service is not running.
-) else (
-    echo [stop] Service stopped.
+cd /d "%~dp0.."
+
+tasklist /FI "WINDOWTITLE eq Blender Batch Render" 2>nul | findstr /i "python" >nul
+if %errorlevel% neq 0 (
+    echo [stop] Server is not running.
+    pause & exit /b 0
 )
+
+echo [stop] Stopping Blender Batch Render server...
+taskkill /F /FI "WINDOWTITLE eq Blender Batch Render" >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [stop] Failed to stop server.
+    pause & exit /b 1
+)
+echo [stop] Server stopped.
 pause

@@ -24,7 +24,7 @@ A browser-based tool for batch-rendering Blender scenes remotely. Queues multipl
 - **Memory-aware** — monitors system memory and auto-restarts when a threshold is exceeded
 - **Web UI** — Vue 3 frontend with terminal console, progress tracking, and system stats
 - **Remote access** — connect from any device via IPv6 (direct) or Tailscale (fallback)
-- **Windows service** — runs as a background service with auto-start and crash recovery
+- **Background process** — runs as a lightweight background window, no installation needed
 
 ## Prerequisites
 
@@ -35,13 +35,13 @@ A browser-based tool for batch-rendering Blender scenes remotely. Queues multipl
 ## Quick Start
 
 ```bash
-# One-click setup — installs Python deps, builds frontend, registers service
+# One-click setup — installs Python deps, builds frontend, starts server
 scripts\setup.bat
 ```
 
-This installs the backend service and opens the Web UI at `http://localhost:34567`.
+This opens the Web UI at `http://localhost:34567`.
 
-After setup, the service starts automatically on boot. Open the page on any device on your network:
+Open the page on any device on your network:
 
 - **Local**: `http://localhost:34567`
 - **LAN**: `http://<your-lan-ip>:34567`
@@ -77,19 +77,17 @@ python -m uvicorn server.main:app --reload --host 127.0.0.1 --port 34567
 cd apps/web && pnpm dev
 ```
 
-## Service Management
+## Server Management
 
 ```bat
-scripts\install-service.bat     # Install/reinstall Windows service
-scripts\remove-service.bat      # Remove Windows service
-scripts\start.bat               # Start the service
-scripts\stop.bat                # Stop the service
-scripts\restart.bat             # Restart the service
+scripts\setup.bat               # One-click: install deps, build frontend, start server
+scripts\start.bat               # Start the server in a background window
+scripts\stop.bat                # Stop the server
+scripts\restart.bat             # Restart the server
 scripts\build-frontend.bat      # Rebuild frontend after changes
-scripts\setup.bat               # One-click: install deps, build frontend, register service
 ```
 
-The service is registered as `BlenderBatchRender` with NSSM. It runs as `python server/run_production.py` (dual-stack IPv4/IPv6 socket).
+The server runs as `python server/run_production.py` (dual-stack IPv4/IPv6 socket).
 
 For development (hot-reload frontend), use one of:
 
@@ -113,14 +111,11 @@ Blender_Bacth_Render_Tool/
 │       ├── App.vue            # Main layout with sidebar navigation
 │       ├── components/        # UI components
 │       └── composables/       # Terminal & settings state
-├── scripts/                   # Batch scripts for setup, service, and dev management
+├── scripts/                   # Setup, control, and dev scripts
 │   ├── setup.bat              # One-click install
-│   ├── install-service.bat    # NSSM service registration
-│   ├── remove-service.bat     # Service uninstall
-│   ├── start.bat / stop.bat / restart.bat  # Service control
+│   ├── start.bat / stop.bat / restart.bat  # Server control
 │   ├── build-frontend.bat     # Frontend rebuild
-│   ├── dev.bat / dev.ps1 / dev.sh  # Dev server launchers
-│   └── nssm.exe               # NSSM service manager (auto-downloaded)
+│   └── dev.bat / dev.ps1 / dev.sh  # Dev server launchers
 └── docs/                      # Design specifications
 ```
 
@@ -147,7 +142,7 @@ Check the WebSocket connection status. If disconnected, the server may be restar
 **No file browse button on mobile/remote?**
 The file dialog (local-only feature) is hidden when accessing remotely. Enter file paths manually.
 
-**Service fails to start?**
+**Server fails to start?**
 Check `logs\error.log` for details. Common causes: incorrect Python path, missing Blender executable.
 
 ## License

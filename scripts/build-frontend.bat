@@ -10,6 +10,7 @@ if /i "%1"=="/q" set QUIET=1
 REM Skip build if dist already exists
 if exist "apps\web\dist\index.html" (
     echo [build] Frontend already built, skipping.
+    if %QUIET% equ 0 pause
     exit /b 0
 )
 
