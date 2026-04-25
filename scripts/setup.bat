@@ -17,20 +17,13 @@ if %errorlevel% neq 0 (
 )
 echo.
 
-REM Step 2: Build frontend
+REM Step 2: Build frontend (auto-installs Node.js/pnpm if missing)
 echo [2/4] Building frontend...
-cd apps\web
-call pnpm install
+call scripts\build-frontend.bat
 if %errorlevel% neq 0 (
-    echo FAILED. Please ensure Node.js 18+ and pnpm are installed.
-    cd ..\.. & pause & exit /b 1
+    echo FAILED. See error messages above.
+    pause & exit /b 1
 )
-call pnpm build
-if %errorlevel% neq 0 (
-    echo FAILED. Frontend build error.
-    cd ..\.. & pause & exit /b 1
-)
-cd ..\..
 echo.
 
 REM Step 3: Register and start service
