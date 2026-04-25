@@ -41,7 +41,7 @@ echo.
 
 REM Step 4: Start server
 echo [4/4] Starting Blender Batch Render server...
-start "Blender Batch Render" /MIN pythonw server/run_production.py
+start /B pythonw server/run_production.py
 timeout /t 3 /nobreak >nul
 
 REM Open browser

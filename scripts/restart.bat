@@ -11,7 +11,7 @@ for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":34567 " ^| findstr "LISTENI
 timeout /t 3 /nobreak >nul
 
 REM Start new
-start "Blender Batch Render" /MIN pythonw server/run_production.py
+start /B pythonw server/run_production.py
 
 REM Wait for server to bind port
 timeout /t 4 /nobreak >nul

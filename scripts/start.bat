@@ -11,7 +11,7 @@ if %errorlevel% equ 0 (
 )
 
 echo [start] Starting Blender Batch Render server...
-start "Blender Batch Render" /MIN pythonw server/run_production.py
+start /B pythonw server/run_production.py
 
 REM Wait for server to bind port
 timeout /t 4 /nobreak >nul
