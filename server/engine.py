@@ -210,6 +210,47 @@ class MemoryMonitor:
 
 
 # ---------------------------------------------------------------------------
+# Windows Job Object — kill Blender automatically if Python exits
+# ---------------------------------------------------------------------------
+
+if sys.platform == "win32":
+    import ctypes
+    from ctypes import wintypes
+
+    _kernel32 = ctypes.windll.kernel32
+
+    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
+    JOB_OBJECT_LIMIT_BREAKAWAY_OK = 0x0100
+
+    _JOB_HANDLE = _kernel32.CreateJobObjectW(None, None)
+    if _JOB_HANDLE:
+        buf = ctypes.create_string_buffer(64)
+        ctypes.memset(buf, 0, 64)
+        flags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK
+        ctypes.memmove(
+            ctypes.byref(buf, 16),
+            ctypes.byref(wintypes.DWORD(flags)),
+            4,
+        )
+        _kernel32.SetInformationJobObject(
+            _JOB_HANDLE, 2, buf, 64,  # JobObjectBasicLimitInformation
+        )
+else:
+    _JOB_HANDLE = None
+
+
+def _assign_to_job(proc: subprocess.Popen) -> None:
+    """Assign a subprocess to the kill-on-close job object.
+    No-op outside Windows or if the job wasn't created."""
+    if _JOB_HANDLE is None:
+        return
+    try:
+        ctypes.windll.kernel32.AssignProcessToJobObject(_JOB_HANDLE, proc._handle)
+    except Exception:
+        pass  # child may already belong to another job — best effort
+
+
+# ---------------------------------------------------------------------------
 # Engine
 # ---------------------------------------------------------------------------
 
@@ -300,7 +341,8 @@ class RenderEngine:
         flags = 0
         if sys.platform == "win32":
             flags = (getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000) |
-                     getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+                     getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) |
+                     getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0))
 
         proc = subprocess.Popen(
             _build_cmd(self.config, start, end),
@@ -308,6 +350,7 @@ class RenderEngine:
             text=True, encoding="utf-8", errors="replace",
             creationflags=flags, env=env, bufsize=1,
         )
+        _assign_to_job(proc)
         self._process = proc
 
         state = _BatchState(frame=0)
