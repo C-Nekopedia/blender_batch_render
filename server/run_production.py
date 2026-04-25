@@ -84,14 +84,11 @@ if __name__ == "__main__":
     sockets = _create_sockets()
 
     # File logging when running via pythonw.exe (no console);
-    # console output when running via python.exe
-    log_config = _setup_logging() if sys.executable.endswith("pythonw.exe") else None
-
-    config = uvicorn.Config(
-        "server.main:app",
-        log_config=log_config,
-        log_level="info",
-    )
+    # console output (uvicorn default) when running via python.exe
+    if sys.executable.endswith("pythonw.exe"):
+        config = uvicorn.Config("server.main:app", log_level="info", log_config=_setup_logging())
+    else:
+        config = uvicorn.Config("server.main:app", log_level="info")
 
     server = uvicorn.Server(config)
     server.run(sockets=sockets)
