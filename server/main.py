@@ -272,10 +272,12 @@ def _get_vram_usage() -> tuple[float | None, float | None]:
 
 def _detect_network_info() -> dict:
     """Detect available network addresses for remote access guides.
-    Called once at module load; result cached via _NETWORK_CACHE."""
+    Called once at module load; result cached via _NETWORK_CACHE.
+    Returns all global IPv6 addresses with their interface names,
+    since virtual adapters (Mihomo, VPNs, etc.) can produce unusable addresses."""
     info = {
         "ipv4": None,       # LAN IPv4 (192.168.x.x / 10.x.x.x)
-        "ipv6": None,       # Global unicast IPv6 (non-link-local)
+        "ipv6": [],         # list of {address, name} — all usable IPv6
         "tailscale": None,  # Tailscale IPv4 (100.x.x.x)
     }
 
@@ -284,8 +286,8 @@ def _detect_network_info() -> dict:
             for addr in addrs:
                 if addr.family == socket.AF_INET6:
                     ip = addr.address.split("%")[0]
-                    if not ip.startswith("fe80") and not ip == "::1":
-                        info["ipv6"] = ip
+                    if not ip.startswith("fe80") and ip != "::1":
+                        info["ipv6"].append({"address": ip, "name": iface})
                 elif addr.family == socket.AF_INET:
                     ip = addr.address
                     iface_lower = iface.lower()
@@ -294,7 +296,7 @@ def _detect_network_info() -> dict:
                         and ("tailscale" in iface_lower or "wg" in iface_lower)
                     ):
                         info["tailscale"] = ip
-                    elif not ip.startswith("127.") and not ip == "0.0.0.0":
+                    elif not ip.startswith("127.") and ip != "0.0.0.0":
                         info["ipv4"] = ip
     except Exception:
         pass

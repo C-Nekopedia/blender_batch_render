@@ -15,8 +15,11 @@ interface SystemStats {
   memory: number | null; vram_used: number | null; vram_total: number | null
 }
 
+interface IPv6Entry {
+  address: string; name: string
+}
 interface NetworkInfo {
-  ipv4: string | null; ipv6: string | null; tailscale: string | null
+  ipv4: string | null; ipv6: IPv6Entry[]; tailscale: string | null
 }
 
 // ========== State ==========
@@ -111,12 +114,12 @@ onUnmounted(() => {
           <code class="net-url">http://{{ net.ipv4 }}:34567</code>
           <button class="btn-copy" @click="copyUrl(`http://${net.ipv4}:34567`)">Copy</button>
         </div>
-        <div class="net-row" v-if="net.ipv6">
-          <span class="net-label">IPv6</span>
-          <code class="net-url">http://[{{ net.ipv6 }}]:34567</code>
-          <button class="btn-copy" @click="copyUrl(`http://[${net.ipv6}]:34567`)">Copy</button>
+        <div v-for="item in net.ipv6" :key="item.address" class="net-row">
+          <span class="net-label" :title="item.name">IPv6</span>
+          <code class="net-url">http://[{{ item.address }}]:34567</code>
+          <button class="btn-copy" @click="copyUrl(`http://[${item.address}]:34567`)">Copy</button>
         </div>
-        <div class="net-row net-off" v-else>
+        <div class="net-row net-off" v-if="!net.ipv6 || net.ipv6.length === 0">
           <span class="net-label">IPv6</span><span>No global IPv6 on this network</span>
         </div>
         <div class="net-row" v-if="net.tailscale">

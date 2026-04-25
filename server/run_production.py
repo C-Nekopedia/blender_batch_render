@@ -83,12 +83,35 @@ def _create_sockets() -> list[socket.socket]:
 if __name__ == "__main__":
     sockets = _create_sockets()
 
-    # File logging when running via pythonw.exe (no console);
-    # console output (uvicorn default) when running via python.exe
+    # pythonw.exe → file logs; python.exe → console logs without ANSI colors
     if sys.executable.endswith("pythonw.exe"):
         config = uvicorn.Config("server.main:app", log_level="info", log_config=_setup_logging())
     else:
-        config = uvicorn.Config("server.main:app", log_level="info")
+        config = uvicorn.Config("server.main:app", log_level="info", log_config={
+            "version": 1,
+            "disable_existing_loggers": False,
+            "formatters": {
+                "default": {
+                    "()": "uvicorn.logging.DefaultFormatter",
+                    "fmt": "%(levelprefix)s %(message)s",
+                    "use_colors": False,
+                },
+                "access": {
+                    "()": "uvicorn.logging.AccessFormatter",
+                    "fmt": '%(asctime)s %(levelprefix)s %(client_addr)s - "%(request_line)s" %(status_code)s',
+                    "use_colors": False,
+                },
+            },
+            "handlers": {
+                "default": {"formatter": "default", "class": "logging.StreamHandler", "stream": "ext://sys.stderr"},
+                "access": {"formatter": "access", "class": "logging.StreamHandler", "stream": "ext://sys.stdout"},
+            },
+            "loggers": {
+                "uvicorn": {"handlers": ["default"], "level": "INFO", "propagate": False},
+                "uvicorn.error": {"handlers": ["default"], "level": "INFO", "propagate": False},
+                "uvicorn.access": {"handlers": ["access"], "level": "INFO", "propagate": False},
+            },
+        })
 
     server = uvicorn.Server(config)
     server.run(sockets=sockets)
