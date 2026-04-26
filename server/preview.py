@@ -45,6 +45,14 @@ class _DebouncedHandler(FileSystemEventHandler):
         if not event.is_directory:
             self._reset_timer()
 
+    def on_moved(self, event):
+        if not event.is_directory:
+            self._reset_timer()
+
+    def on_deleted(self, event):
+        if not event.is_directory:
+            self._reset_timer()
+
     def stop(self):
         if self._timer:
             self._timer.cancel()

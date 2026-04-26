@@ -22,8 +22,10 @@
 
 - **批量渲染** — 按可配置的批次大小渲染帧，批次间重启 Blender 以释放内存
 - **内存感知** — 监控系统内存使用率，超过阈值自动重启
-- **Web 界面** — Vue 3 前端，包含终端控制台、进度追踪和系统状态面板
+- **预览面板** — 实时栅格预览渲染输出帧；支持 EXR（ACES 色调映射）
+- **Web 界面** — Vue 3 前端，包含终端控制台、错误日志分页、系统状态和实时预览
 - **远程访问** — 通过 IPv6（直连）或 Tailscale（回退）从任意设备连接
+- **移动端适配** — 响应式布局，汉堡菜单导航
 - **后台进程** — 以后台窗口运行，无需安装，即开即用
 
 ## 环境要求
@@ -112,11 +114,17 @@ Blender_Bacth_Render_Tool/
 ├── server/                    # Python FastAPI 后端
 │   ├── main.py                # HTTP/WebSocket 路由、系统检测、API 端点
 │   ├── engine.py              # Blender 子进程管理、批量渲染引擎
+│   ├── preview.py             # 基于 watchdog 的输出目录监控
 │   └── run_production.py      # 双栈入口（IPv4 + IPv6）
 ├── apps/web/                  # Vue 3 + Vite 前端
 │   └── src/
 │       ├── App.vue            # 主布局，含侧边栏导航
-│       ├── components/        # UI 组件
+│       ├── components/
+│       │   ├── PreviewPanel.vue      # 栅格预览、分页、放大查看
+│       │   ├── TerminalConsole.vue   # 分页终端（Console / Errors）
+│       │   ├── SettingsPanel.vue     # 渲染设置 + 崩溃恢复配置
+│       │   ├── StatsBar.vue          # 用时 + 进度条
+│       │   └── SystemInfo.vue        # 硬件信息、使用率图表、远程访问指南
 │       └── composables/       # 终端与设置状态管理
 ├── scripts/                   # 安装、控制、开发脚本
 │   ├── setup.bat              # 一键安装
@@ -132,7 +140,7 @@ Blender_Bacth_Render_Tool/
 
 | 端点 | 方法 | 说明 |
 |------|------|------|
-| `/ws` | WebSocket | 实时推送渲染进度和系统状态 |
+| `/ws` | WebSocket | 实时推送渲染进度、系统状态、预览更新 |
 | `/render/start` | POST | 开始渲染 |
 | `/render/stop` | POST | 停止渲染 |
 | `/api/settings` | GET/POST | 读写渲染设置 |
@@ -140,6 +148,7 @@ Blender_Bacth_Render_Tool/
 | `/api/hardware-info` | GET | 硬件配置（CPU、GPU、主板、内存、OS） |
 | `/api/network-info` | GET | 网络地址（IPv4、IPv6、Tailscale） |
 | `/api/browse-file` | GET | 打开系统文件选择对话框（仅本地） |
+| `/api/preview-file` | GET | 提供渲染输出图像；`?thumb=true` 返回 320px WebP 缩略图 |
 
 ## 常见问题
 
@@ -151,6 +160,12 @@ Blender_Bacth_Render_Tool/
 
 **服务器无法启动？**
 检查 `logs\error.log` 查看详细错误信息。常见原因：Python 路径不正确、Blender 路径不存在。
+
+**EXR 预览颜色与 Photoshop 不同？**
+EXR 为 HDR 浮点格式，浏览器无法直接显示。工具使用 ACES Filmic 色调映射（与 Blender 视口相同的算法）将其转为 WebP，可能与 Photoshop 的显示设置有差异。原始 EXR 文件不受影响。
+
+**预览页手动增删文件后没有刷新？**
+目录监控覆盖了 on_created、on_modified、on_moved、on_deleted 四种事件。切换到预览页时会触发 re-scan（preview_init 消息）。如果服务停止期间添加的文件，首次扫描时会自动出现。
 
 ## 许可证
 

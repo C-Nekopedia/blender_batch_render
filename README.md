@@ -22,8 +22,10 @@ A browser-based tool for batch-rendering Blender scenes remotely. Queues multipl
 
 - **Batch render** — renders frames in configurable batches, restarting Blender between batches to manage memory
 - **Memory-aware** — monitors system memory and auto-restarts when a threshold is exceeded
-- **Web UI** — Vue 3 frontend with terminal console, progress tracking, and system stats
+- **Preview panel** — real-time grid preview of rendered frames; EXR supported via ACES tone mapping
+- **Web UI** — Vue 3 frontend with terminal console, tabbed error log, system stats, and live preview
 - **Remote access** — connect from any device via IPv6 (direct) or Tailscale (fallback)
+- **Mobile-friendly** — responsive layout with hamburger navigation menu
 - **Background process** — runs as a lightweight background window, no installation needed
 
 ## Prerequisites
@@ -105,11 +107,17 @@ Blender_Bacth_Render_Tool/
 ├── server/                    # Python FastAPI backend
 │   ├── main.py                # HTTP/WS routes, settings, hardware detection
 │   ├── engine.py              # Blender subprocess manager, batch render engine
+│   ├── preview.py             # Watchdog-based filesystem watcher for output preview
 │   └── run_production.py      # Dual-stack entry point (IPv4 + IPv6)
 ├── apps/web/                  # Vue 3 + Vite frontend
 │   └── src/
 │       ├── App.vue            # Main layout with sidebar navigation
-│       ├── components/        # UI components
+│       ├── components/
+│       │   ├── PreviewPanel.vue      # Grid preview, pagination, lightbox viewer
+│       │   ├── TerminalConsole.vue   # Tabbed console (Console / Errors)
+│       │   ├── SettingsPanel.vue     # Render settings + crash recovery config
+│       │   ├── StatsBar.vue          # Elapsed time + progress bar
+│       │   └── SystemInfo.vue        # Hardware info, usage charts, remote access guide
 │       └── composables/       # Terminal & settings state
 ├── scripts/                   # Setup, control, and dev scripts
 │   ├── setup.bat              # One-click install
@@ -125,7 +133,7 @@ The render engine runs Blender as a subprocess in background mode (`-b`), parses
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/ws` | WebSocket | Real-time render progress and system stats push |
+| `/ws` | WebSocket | Real-time render progress, system stats, and preview push |
 | `/render/start` | POST | Start rendering |
 | `/render/stop` | POST | Stop rendering |
 | `/api/settings` | GET/POST | Read/write render settings |
@@ -133,6 +141,7 @@ The render engine runs Blender as a subprocess in background mode (`-b`), parses
 | `/api/hardware-info` | GET | Hardware configuration (CPU, GPU, motherboard, RAM, OS) |
 | `/api/network-info` | GET | Network addresses (IPv4, IPv6, Tailscale) |
 | `/api/browse-file` | GET | Open native file dialog (local only) |
+| `/api/preview-file` | GET | Serve render output image; `?thumb=true` for 320px WebP |
 
 ## FAQ
 
@@ -144,6 +153,12 @@ The file dialog (local-only feature) is hidden when accessing remotely. Enter fi
 
 **Server fails to start?**
 Check `logs\error.log` for details. Common causes: incorrect Python path, missing Blender executable.
+
+**Why do EXR previews look different from Photoshop?**
+EXR files are HDR float format that browsers cannot display natively. The tool converts them to WebP using ACES Filmic tone mapping (the same algorithm used by Blender's viewport), which may differ from Photoshop's display settings. Full-precision original files remain untouched.
+
+**Preview not refreshing when files are added/removed?**
+The watcher monitors `on_created`, `on_modified`, `on_moved`, and `on_deleted` events. Switch to the Preview tab to trigger a re-scan (`preview_init` message). If files were added while the server was stopped, they will appear on the first scan.
 
 ## License
 

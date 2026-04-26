@@ -735,7 +735,10 @@ async def serve_preview_file(path: str, thumb: bool = False):
         if not cache_path.exists() or cache_path.stat().st_mtime < requested.stat().st_mtime:
             cache_dir.mkdir(exist_ok=True)
             loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, _make_thumbnail, requested, cache_path, size)
+            try:
+                await loop.run_in_executor(None, _make_thumbnail, requested, cache_path, size)
+            except OSError:
+                raise HTTPException(415, "Cannot decode this image file")
         return FileResponse(cache_path, media_type='image/webp')
 
     media = {
@@ -755,7 +758,8 @@ def _make_thumbnail(src: Path, dst: Path, size: int = 320):
     """Generate a WebP thumbnail from an image file. EXR files are tone-mapped."""
     ext = src.suffix.lower()
     if ext == '.exr':
-        _convert_exr(src, dst, size)
+        if not _convert_exr(src, dst, size):
+            raise OSError(f"Cannot decode EXR: {src}")
     else:
         from PIL import Image
         img = Image.open(src)
@@ -763,16 +767,39 @@ def _make_thumbnail(src: Path, dst: Path, size: int = 320):
         img.save(str(dst), 'webp', quality=75)
 
 
-def _convert_exr(src: Path, dst: Path, size: int):
-    """Read EXR via OpenCV, apply Reinhard tone mapping, save as WebP."""
+def _read_exr(path: str):
+    """Read an EXR file as RGB float32. Tries cv2 first, then imageio.
+    Returns numpy array or None if unreadable."""
+    import numpy as np
+
+    # 1. cv2 — fast, covers ZIP/PIZ/RLE/uncompressed
     import cv2
+    data = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+    if data is not None:
+        return data[:, :, ::-1].astype(np.float32)  # BGR -> RGB
+
+    # 2. imageio — wider format support (e.g. DWAB/DWAA via FreeImage)
+    try:
+        import imageio.v3 as iio
+        data = iio.imread(path)
+        if data is not None:
+            return data[:, :, :3].astype(np.float32)
+    except Exception:
+        pass
+
+    return None
+
+
+def _convert_exr(src: Path, dst: Path, size: int):
+    """Read EXR, apply ACES Filmic tone mapping, save as WebP.
+    Returns True on success, False if the file could not be decoded."""
     import numpy as np
     from PIL import Image
 
-    data = cv2.imread(str(src), cv2.IMREAD_UNCHANGED)
-    if data is None:
-        raise RuntimeError(f"Failed to read EXR: {src}")
-    rgb = data[:, :, ::-1]  # BGR -> RGB
+    rgb = _read_exr(str(src))
+    if rgb is None:
+        return False
+
     # ACES Filmic tone mapping (Narkowicz 2015 fit)
     a, b, c, d, e = 2.51, 0.03, 2.43, 0.59, 0.14
     rgb = (rgb * (a * rgb + b)) / (rgb * (c * rgb + d) + e)
@@ -786,6 +813,7 @@ def _convert_exr(src: Path, dst: Path, size: int):
     img = Image.fromarray(rgb.astype(np.uint8), 'RGB')
     img.thumbnail((size, size), Image.LANCZOS)
     img.save(str(dst), 'webp', quality=75)
+    return True
 
 
 class SettingsSchema(BaseModel):

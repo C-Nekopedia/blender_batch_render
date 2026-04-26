@@ -70,6 +70,31 @@ function nextPage() {
   if (currentPage.value < totalPages.value) currentPage.value++
 }
 
+const jumpInput = ref<number | string>('')
+function goToPage() {
+  const val = jumpInput.value
+  if (val === '' || val == null) return
+  const n = Number(val)
+  if (!Number.isFinite(n)) { jumpInput.value = ''; return }
+  currentPage.value = Math.max(1, Math.min(Math.floor(n), totalPages.value))
+  jumpInput.value = ''
+}
+function onJumpKey(e: KeyboardEvent) {
+  if (e.key === 'Enter') goToPage()
+}
+
+// Wheel-triggered pagination for desktop — no scrollbar on grid, so
+// wheel events are free to flip pages unconditionally.
+let lastWheelFlip = 0
+function onGridWheel(e: WheelEvent) {
+  e.preventDefault()
+  const now = Date.now()
+  if (now - lastWheelFlip < 300) return
+  lastWheelFlip = now
+  if (e.deltaY > 0) nextPage()
+  else if (e.deltaY < 0) prevPage()
+}
+
 // Reset page when files change (new render started)
 const prevLen = ref(0)
 if (props.files.length === 0 && prevLen.value > 0) {
@@ -108,7 +133,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     </div>
 
     <!-- Grid -->
-    <div v-else class="preview-grid">
+    <div v-else class="preview-grid" @wheel.prevent="onGridWheel">
       <div
         v-for="(file, i) in pageFiles"
         :key="file.filename"
@@ -137,7 +162,21 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         </svg>
         Prev
       </button>
-      <span class="page-info">{{ currentPage }} / {{ totalPages }}</span>
+      <span class="page-label">Page</span>
+      <input
+        class="page-jump-input"
+        type="number"
+        inputmode="numeric"
+        autocomplete="off"
+        v-model="jumpInput"
+        :min="1"
+        :max="totalPages"
+        :placeholder="String(currentPage)"
+        @keydown="onJumpKey"
+        @blur="goToPage"
+      />
+      <button type="button" class="page-btn page-go-btn" @click="goToPage">Go</button>
+      <span class="page-total">/ {{ totalPages }}</span>
       <button class="page-btn" :disabled="currentPage === totalPages" @click="nextPage">
         Next
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -352,6 +391,43 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   font-family: 'JetBrains Mono', 'Cascadia Code', 'Consolas', monospace;
   user-select: none;
 }
+.page-label, .page-total {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-family: 'JetBrains Mono', 'Cascadia Code', 'Consolas', monospace;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.page-jump-input {
+  width: 64px;
+  padding: 4px 8px;
+  border: 1.5px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-family: 'JetBrains Mono', 'Cascadia Code', 'Consolas', monospace;
+  text-align: center;
+  background: var(--card-bg);
+  color: var(--text-title);
+  outline: none;
+  transition: border-color var(--transition);
+  /* hide number spinner */
+  -moz-appearance: textfield;
+}
+.page-jump-input::-webkit-outer-spin-button,
+.page-jump-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.page-jump-input:focus {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.15);
+}
+
+.page-go-btn {
+  padding: 4px 10px;
+  font-size: 0.75rem;
+}
 
 /* Lightbox */
 .lightbox-overlay {
@@ -466,5 +542,14 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   }
   .lightbox-nav { display: none; }
   .preview-header { padding: 12px 16px; font-size: 0.82rem; }
+  .pagination {
+    padding: 8px 12px;
+    gap: 6px;
+  }
+  .page-label { display: none; }
+  .page-jump-input { width: 48px; font-size: 0.72rem; padding: 3px 6px; }
+  .page-btn { padding: 4px 8px; font-size: 0.7rem; gap: 2px; }
+  .page-btn svg { width: 12px; height: 12px; }
+  .page-go-btn { padding: 3px 8px; font-size: 0.7rem; }
 }
 </style>
