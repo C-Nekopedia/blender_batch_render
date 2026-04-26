@@ -309,10 +309,15 @@ class RenderEngine:
     def _heartbeat_loop(self, progress: _FrameProgress) -> None:
         """Background thread: fires on_frame_progress while a frame is active.
         Throttled to at most 2 updates/second to avoid flooding the WS.
-        Uses threading.Event for responsive shutdown instead of busy-wait sleep.
+        Also detects if Blender died unexpectedly (crash / sleep / OOM kill).
         """
         last_send = 0.0
         while not self._stop_heartbeat.is_set():
+            # Check if Blender died while render was supposed to be running
+            if not self._stop_requested and self._process is not None:
+                code = self._process.poll()
+                if code is not None and progress.active:
+                    self.cb.on_error(f"Blender process died unexpectedly (exit code {code})")
             if progress.active and not self._stop_requested:
                 now = time.time()
                 if now - last_send >= 0.5:
