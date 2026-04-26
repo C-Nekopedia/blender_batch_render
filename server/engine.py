@@ -27,8 +27,6 @@ DEFAULT_RENDER_TIMEOUT = 86400  # 24h safety net
 
 BATCH_OK = 0
 BATCH_ERROR = -1
-RAPID_CRASH_INTERVAL = 60   # seconds — crashes outside this window don't count as rapid
-MAX_RAPID_CRASHES = 3
 
 # Regex patterns for Blender output parsing
 _FRAME_RE = re.compile(r"(?:Fra:|Frame:)\s*(\d+)", re.I)
@@ -61,6 +59,8 @@ class Config:
     restart_delay: float = DEFAULT_RESTART_DELAY
     frame_timeout: float = DEFAULT_FRAME_TIMEOUT
     render_timeout: float = DEFAULT_RENDER_TIMEOUT
+    rapid_crash_limit: int = 3      # max rapid crashes before giving up
+    rapid_crash_window: float = 60.0  # seconds — crashes outside this reset the counter
 
 
 # ---------------------------------------------------------------------------
@@ -482,16 +482,16 @@ class RenderEngine:
             if code != 0:
                 now = time.time()
                 since_last = now - self._last_crash_time
-                if since_last <= RAPID_CRASH_INTERVAL:
+                if since_last <= self.config.rapid_crash_window:
                     self._rapid_crashes += 1
                 else:
                     self._rapid_crashes = 1
                 self._last_crash_time = now
 
                 self.cb.on_error(
-                    f"Blender crashed (exit {code}, rapid {self._rapid_crashes}/{MAX_RAPID_CRASHES})"
+                    f"Blender crashed (exit {code}, rapid {self._rapid_crashes}/{self.config.rapid_crash_limit})"
                 )
-                if self._rapid_crashes > MAX_RAPID_CRASHES:
+                if self._rapid_crashes > self.config.rapid_crash_limit:
                     self.cb.on_error("Rapid crash loop detected — stopping render")
                     return BATCH_ERROR
                 if last_saved >= start:

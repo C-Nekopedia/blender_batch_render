@@ -10,6 +10,8 @@ export function useSettings() {
   const batchSize = ref(50)
   const memThreshold = ref(85)
   const restartDelay = ref(5)
+  const crashLimit = ref(3)      // max rapid crashes before giving up
+  const crashWindow = ref(60)    // seconds — crashes outside this window reset counter
 
   async function loadSettings() {
     try {
@@ -23,6 +25,8 @@ export function useSettings() {
       if (data.batch) batchSize.value = data.batch
       if (data.memory_threshold) memThreshold.value = data.memory_threshold
       if (data.restart_delay) restartDelay.value = data.restart_delay
+      if (data.rapid_crash_limit != null) crashLimit.value = data.rapid_crash_limit
+      if (data.rapid_crash_window != null) crashWindow.value = data.rapid_crash_window
     } catch {
       console.warn('Failed to load settings from backend')
     }
@@ -37,6 +41,8 @@ export function useSettings() {
       batch: batchSize.value,
       memory_threshold: memThreshold.value,
       restart_delay: restartDelay.value,
+      rapid_crash_limit: crashLimit.value,
+      rapid_crash_window: crashWindow.value,
     }
     try {
       await fetch(`${API_BASE}/api/settings`, {
@@ -74,6 +80,8 @@ export function useSettings() {
       batch: batchSize.value,
       memory_threshold: memThreshold.value,
       restart_delay: restartDelay.value,
+      rapid_crash_limit: crashLimit.value,
+      rapid_crash_window: crashWindow.value,
     }
   }
 
@@ -90,6 +98,7 @@ export function useSettings() {
 
   return {
     blenderPath, blendFile, startFrame, endFrame, batchSize, memThreshold, restartDelay,
+    crashLimit, crashWindow,
     loadSettings, saveSettingsToBackend, browseFile, getRenderBody, validate,
   }
 }

@@ -156,6 +156,8 @@ class RenderConfigSchema(BaseModel):
     memory_threshold: float
     memory_poll_seconds: float = 1.0
     restart_delay: float
+    rapid_crash_limit: int = 3
+    rapid_crash_window: float = 60.0
 
 
 # ---------------------------------------------------------------------------
@@ -503,6 +505,8 @@ async def start_render(cfg: RenderConfigSchema):
             memory_threshold=cfg.memory_threshold,
             memory_poll_seconds=cfg.memory_poll_seconds,
             restart_delay=cfg.restart_delay,
+            rapid_crash_limit=cfg.rapid_crash_limit,
+            rapid_crash_window=cfg.rapid_crash_window,
         )
 
         loop = asyncio.get_running_loop()

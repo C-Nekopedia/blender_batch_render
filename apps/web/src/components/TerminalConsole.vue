@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue'
+import { ref, watch, nextTick, computed } from 'vue'
 import type { TerminalLine } from '../composables/useTerminal'
 
 const props = defineProps<{
   terminalLines: TerminalLine[]
+  errorLines: TerminalLine[]
   isRunning: boolean
   wsConnected: boolean
 }>()
@@ -12,9 +13,11 @@ const emit = defineEmits<{
   clear: []
 }>()
 
+const activeTab = ref<'console' | 'errors'>('console')
+const errorCount = computed(() => props.errorLines.length)
 const terminalEl = ref<HTMLElement | null>(null)
 
-// Auto-scroll when lines change (additions or in-place modifications)
+// Auto-scroll when lines change
 watch(() => props.terminalLines, () => {
   nextTick(() => {
     if (terminalEl.value) {
@@ -26,13 +29,21 @@ watch(() => props.terminalLines, () => {
 
 <template>
   <div class="panel">
-    <div class="panel-header">
-      <span>Console</span>
-      <div class="panel-header-actions">
-        <button class="btn-icon" @click="emit('clear')" title="清空控制台">Clear</button>
-      </div>
+    <!-- Tab bar -->
+    <div class="tab-bar">
+      <button class="tab" :class="{ active: activeTab === 'console' }" @click="activeTab = 'console'">
+        Console
+      </button>
+      <button class="tab" :class="{ active: activeTab === 'errors' }" @click="activeTab = 'errors'">
+        Errors
+        <span v-if="errorCount > 0" class="tab-badge">{{ errorCount }}</span>
+      </button>
+      <div class="tab-bar-spacer"></div>
+      <button class="btn-icon" @click="emit('clear')" title="Clear">Clear</button>
     </div>
-    <div class="terminal" ref="terminalEl">
+
+    <!-- Console tab -->
+    <div v-if="activeTab === 'console'" class="terminal" ref="terminalEl">
       <div v-for="line in terminalLines" :key="line.id" class="terminal-line">
         <span class="terminal-time">[{{ line.time }}]</span>
         <span :class="['terminal-msg', line.type]">{{ line.text }}</span>
@@ -42,6 +53,17 @@ watch(() => props.terminalLines, () => {
           {{ isRunning ? 'Rendering...' : !wsConnected ? '正在连接...' : 'Ready for render' }}
         </span>
         <span class="terminal-cursor"></span>
+      </div>
+    </div>
+
+    <!-- Errors tab -->
+    <div v-if="activeTab === 'errors'" class="terminal">
+      <div v-if="errorLines.length === 0" class="terminal-line" style="color:var(--terminal-dim)">
+        No errors
+      </div>
+      <div v-for="line in errorLines" :key="line.id" class="terminal-line">
+        <span class="terminal-time">[{{ line.time }}]</span>
+        <span class="terminal-msg error">{{ line.text }}</span>
       </div>
     </div>
   </div>
@@ -59,23 +81,44 @@ watch(() => props.terminalLines, () => {
   min-height: 0;
 }
 
-.panel-header {
-  padding: 16px 20px;
+.tab-bar {
+  display: flex;
+  align-items: center;
   border-bottom: 1.5px solid var(--border);
-  font-weight: 700;
-  color: var(--text-title);
-  font-size: 0.9rem;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  padding: 0 8px;
   flex-shrink: 0;
+  background: #F8FAFC;
 }
-
-.panel-header-actions {
-  display: flex;
-  gap: 8px;
+.tab {
+  padding: 10px 16px;
+  border: none;
+  background: none;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1.5px;
+  transition: all var(--transition);
+  display: inline-flex;
   align-items: center;
+  gap: 6px;
 }
+.tab:hover { color: var(--text-title); }
+.tab.active {
+  color: var(--brand);
+  border-bottom-color: var(--brand);
+}
+.tab-badge {
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 10px;
+  line-height: 1.4;
+}
+.tab-bar-spacer { flex: 1; }
 
 .btn-icon {
   background: none;

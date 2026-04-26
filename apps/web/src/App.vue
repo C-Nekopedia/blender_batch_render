@@ -14,8 +14,10 @@ const API_BASE = import.meta.env.VITE_API_BASE || ''
 // =====================================================================
 const {
   terminalLines,
+  errorLines,
   frameLineMap,
   writeTerminal,
+  writeError,
   updateProgressLine,
   finalizeProgressLine,
   clearConsole,
@@ -30,6 +32,7 @@ const {
   batchSize,
   memThreshold,
   restartDelay,
+  crashLimit, crashWindow,
   loadSettings,
   saveSettingsToBackend,
   browseFile,
@@ -118,8 +121,14 @@ function connectWebSocket() {
           break
 
         case 'error':
+          writeError(msg.data.message)
           writeTerminal(`ERROR: ${msg.data.message}`, 'error')
-          isRunning.value = false
+          // Crash auto-restart messages shouldn't stop the render
+          if (!msg.data.message?.includes('Restarting from frame')) {
+            isRunning.value = false
+            renderStartTime.value = null
+            frameLineMap.clear()
+          }
           renderStartTime.value = null
           frameLineMap.clear()
           break
@@ -320,6 +329,7 @@ onUnmounted(() => {
         <div class="content">
           <TerminalConsole
             :terminalLines="terminalLines"
+            :errorLines="errorLines"
             :isRunning="isRunning"
             :wsConnected="wsConnected"
             @clear="clearConsole"
@@ -333,6 +343,8 @@ onUnmounted(() => {
             v-model:batchSize="batchSize"
             v-model:memThreshold="memThreshold"
             v-model:restartDelay="restartDelay"
+            v-model:crashLimit="crashLimit"
+            v-model:crashWindow="crashWindow"
             :isRunning="isRunning"
             :wsConnected="wsConnected"
             :remoteAccess="isRemote"

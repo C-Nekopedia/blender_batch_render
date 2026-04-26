@@ -11,6 +11,7 @@ let nextLineId = 0
 
 export function useTerminal() {
   const terminalLines = ref<TerminalLine[]>([])
+  const errorLines = ref<TerminalLine[]>([])
   const frameLineMap = reactive(new Map<number, number>())
 
   function nowStr() {
@@ -20,6 +21,11 @@ export function useTerminal() {
   function writeTerminal(message: string, type = '') {
     terminalLines.value.push({ id: nextLineId++, time: nowStr(), text: message, type })
     trimTerminal()
+  }
+
+  function writeError(message: string) {
+    errorLines.value.push({ id: nextLineId++, time: nowStr(), text: message, type: 'error' })
+    if (errorLines.value.length > 200) errorLines.value = errorLines.value.slice(-200)
   }
 
   function updateProgressLine(frame: number, sampleCurr: number, sampleTotal: number | null, elapsed: number) {
@@ -55,6 +61,7 @@ export function useTerminal() {
 
   function clearConsole() {
     terminalLines.value = []
+    errorLines.value = []
     frameLineMap.clear()
   }
 
@@ -85,8 +92,10 @@ export function useTerminal() {
 
   return {
     terminalLines,
+    errorLines,
     frameLineMap,
     writeTerminal,
+    writeError,
     updateProgressLine,
     finalizeProgressLine,
     clearConsole,

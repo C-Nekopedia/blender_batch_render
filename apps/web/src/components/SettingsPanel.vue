@@ -6,6 +6,8 @@ const endFrame = defineModel<number>('endFrame', { required: true })
 const batchSize = defineModel<number>('batchSize', { required: true })
 const memThreshold = defineModel<number>('memThreshold', { required: true })
 const restartDelay = defineModel<number>('restartDelay', { required: true })
+const crashLimit = defineModel<number>('crashLimit', { required: true })
+const crashWindow = defineModel<number>('crashWindow', { required: true })
 
 defineProps<{
   isRunning: boolean
@@ -76,6 +78,20 @@ const emit = defineEmits<{
       <div class="form-group">
         <label class="form-label">重启延迟 (秒)</label>
         <input class="form-input" type="number" v-model.number="restartDelay" min="1" max="60" />
+      </div>
+
+      <div class="form-section-title">崩溃恢复</div>
+
+      <div class="form-group">
+        <label class="form-label">连崩检测上限</label>
+        <input class="form-input" type="number" v-model.number="crashLimit" min="1" max="20" />
+        <span class="form-hint">Blender 在时间窗口内连续崩溃超过此次数后停止渲染</span>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">连崩时间窗口 (秒)</label>
+        <input class="form-input" type="number" v-model.number="crashWindow" min="10" max="3600" />
+        <span class="form-hint">两次崩溃间隔超过此秒数即视为非连续崩溃，计数器归零</span>
       </div>
     </div>
 
