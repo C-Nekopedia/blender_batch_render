@@ -122,7 +122,6 @@ function connectWebSocket() {
 
         case 'error':
           writeError(msg.data.message)
-          writeTerminal(`ERROR: ${msg.data.message}`, 'error')
           renderStartTime.value = null
           frameLineMap.clear()
           break
