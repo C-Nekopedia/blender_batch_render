@@ -2,6 +2,9 @@
 Bridges the synchronous render engine to the browser via WebSocket.
 """
 
+import os
+os.environ.setdefault('OPENCV_IO_ENABLE_OPENEXR', '1')  # enable EXR codec in OpenCV
+
 import asyncio
 import atexit
 import json
@@ -37,6 +40,7 @@ from engine import (
     DEFAULT_MEMORY_THRESHOLD,
     DEFAULT_RESTART_DELAY,
 )
+from preview import PreviewWatcher, scan_directory
 
 logger = logging.getLogger(__name__)
 
@@ -102,11 +106,65 @@ _render_state = RenderState.IDLE
 _executor = ThreadPoolExecutor(max_workers=1)
 _render_lock = asyncio.Lock()
 
+# Preview state
+_output_dir: Path | None = None
+_preview_watcher: PreviewWatcher | None = None
+
 # Last-saved settings (in-memory, persists across page refreshes)
 _settings_store: dict = {}
 
 # Settings file path for disk persistence (survives server restarts)
 SETTINGS_FILE = Path(__file__).parent / "settings.json"
+
+
+# ---------------------------------------------------------------------------
+# Preview helpers
+# ---------------------------------------------------------------------------
+
+def _ensure_preview_watcher(file_path: str, loop: asyncio.AbstractEventLoop):
+    """Initialize preview watcher on first frame-saved event."""
+    global _output_dir, _preview_watcher
+    if _output_dir is not None:
+        return
+    _output_dir = Path(file_path).parent
+    _preview_watcher = PreviewWatcher(_output_dir)
+    _preview_watcher.start(lambda files: asyncio.run_coroutine_threadsafe(
+        _broadcast_preview(files), loop
+    ))
+
+
+async def _broadcast_preview(files: list[dict]):
+    """Broadcast preview file list to all connected WebSocket clients."""
+    payload = {
+        "type": "preview_update",
+        "data": {
+            "output_dir": str(_output_dir) if _output_dir else None,
+            "files": files,
+        },
+        "timestamp": time.time(),
+    }
+    for ws in list(_connections):
+        try:
+            await ws.send_json(payload)
+        except Exception:
+            pass
+
+
+def _stop_watcher():
+    """Stop the watchdog observer but keep _output_dir for post-render browsing."""
+    global _preview_watcher
+    if _preview_watcher:
+        _preview_watcher.stop()
+        _preview_watcher = None
+
+
+def _reset_preview():
+    """Full reset — stop watcher and clear output directory."""
+    global _output_dir, _preview_watcher
+    if _preview_watcher:
+        _preview_watcher.stop()
+        _preview_watcher = None
+    _output_dir = None
 
 
 # ---------------------------------------------------------------------------
@@ -139,6 +197,7 @@ async def _shutdown_handler():
         _engine = None
 
     _executor.shutdown(wait=False)
+    _reset_preview()
     _kill_orphan_blender()
 
 
@@ -203,6 +262,7 @@ class WebSocketCallbacks(RenderCallbacks):
                     sample_total=sample_total, elapsed=round(elapsed, 1), mem=mem)
 
     def on_frame_saved(self, frame: int, path: str, elapsed: float):
+        _ensure_preview_watcher(path, self._loop)
         self._send("frame_saved", frame=frame, path=path,
                     elapsed=round(elapsed, 1))
 
@@ -444,6 +504,7 @@ async def _finish_render():
     async with _render_lock:
         _engine = None
         _render_state = RenderState.IDLE
+    _stop_watcher()
 
 
 # ---------------------------------------------------------------------------
@@ -488,6 +549,8 @@ async def _stats_pusher(ws: WebSocket) -> None:
 @app.post("/render/start")
 async def start_render(cfg: RenderConfigSchema):
     global _engine, _render_state
+
+    _reset_preview()  # clear previous render's output dir
 
     async with _render_lock:
         if _render_state != RenderState.IDLE:
@@ -549,7 +612,26 @@ async def ws_endpoint(websocket: WebSocket):
 
     try:
         while True:
-            await websocket.receive_text()
+            raw = await websocket.receive_text()
+            try:
+                msg = json.loads(raw)
+                if msg.get("type") == "preview_init":
+                    if _preview_watcher:
+                        files = _preview_watcher.files
+                    elif _output_dir is not None:
+                        files = scan_directory(_output_dir)
+                    else:
+                        files = []
+                    await websocket.send_json({
+                        "type": "preview_update",
+                        "data": {
+                            "output_dir": str(_output_dir) if _output_dir else None,
+                            "files": files,
+                        },
+                        "timestamp": time.time(),
+                    })
+            except (json.JSONDecodeError, RuntimeError):
+                pass
     except WebSocketDisconnect:
         pass
     finally:
@@ -622,6 +704,88 @@ async def network_info():
 async def hardware_info():
     """Return static hardware info (CPU, GPU, motherboard, RAM, OS)."""
     return _HARDWARE_CACHE
+
+
+@app.get("/api/preview-file")
+async def serve_preview_file(path: str, thumb: bool = False):
+    """Serve an image file from the render output directory.
+    Set ?thumb=true to get a small WebP thumbnail (320px wide).
+    """
+    global _output_dir
+    if _output_dir is None:
+        raise HTTPException(400, "No active render output directory")
+
+    requested = (_output_dir / path).resolve()
+    try:
+        requested.relative_to(_output_dir.resolve())
+    except ValueError:
+        raise HTTPException(403, "Path traversal detected")
+
+    if not requested.is_file():
+        raise HTTPException(404, "File not found")
+
+    ext = requested.suffix.lower()
+
+    if thumb or ext == '.exr':
+        # Thumbnails & EXR (which browsers can't display) are always converted
+        cache_dir = _output_dir / ".thumb_cache"
+        suffix = "_lg" if (not thumb and ext == '.exr') else ""
+        cache_path = cache_dir / f"{requested.stem}{suffix}.webp"
+        size = 1920 if (not thumb and ext == '.exr') else 320
+        if not cache_path.exists() or cache_path.stat().st_mtime < requested.stat().st_mtime:
+            cache_dir.mkdir(exist_ok=True)
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, _make_thumbnail, requested, cache_path, size)
+        return FileResponse(cache_path, media_type='image/webp')
+
+    media = {
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.bmp': 'image/bmp',
+        '.webp': 'image/webp',
+    }
+    if ext not in media:
+        raise HTTPException(400, f"Unsupported file type: {ext}")
+
+    return FileResponse(requested, media_type=media[ext])
+
+
+def _make_thumbnail(src: Path, dst: Path, size: int = 320):
+    """Generate a WebP thumbnail from an image file. EXR files are tone-mapped."""
+    ext = src.suffix.lower()
+    if ext == '.exr':
+        _convert_exr(src, dst, size)
+    else:
+        from PIL import Image
+        img = Image.open(src)
+        img.thumbnail((size, size), Image.LANCZOS)
+        img.save(str(dst), 'webp', quality=75)
+
+
+def _convert_exr(src: Path, dst: Path, size: int):
+    """Read EXR via OpenCV, apply Reinhard tone mapping, save as WebP."""
+    import cv2
+    import numpy as np
+    from PIL import Image
+
+    data = cv2.imread(str(src), cv2.IMREAD_UNCHANGED)
+    if data is None:
+        raise RuntimeError(f"Failed to read EXR: {src}")
+    rgb = data[:, :, ::-1]  # BGR -> RGB
+    # ACES Filmic tone mapping (Narkowicz 2015 fit)
+    a, b, c, d, e = 2.51, 0.03, 2.43, 0.59, 0.14
+    rgb = (rgb * (a * rgb + b)) / (rgb * (c * rgb + d) + e)
+    rgb = np.clip(rgb, 0.0, 1.0)
+    # Linear -> sRGB gamma
+    mask = rgb <= 0.0031308
+    rgb_lo = 12.92 * rgb
+    rgb_hi = 1.055 * (rgb ** (1.0 / 2.4)) - 0.055
+    rgb = np.where(mask, rgb_lo, rgb_hi)
+    rgb = np.clip(rgb, 0.0, 1.0) * 255.0
+    img = Image.fromarray(rgb.astype(np.uint8), 'RGB')
+    img.thumbnail((size, size), Image.LANCZOS)
+    img.save(str(dst), 'webp', quality=75)
 
 
 class SettingsSchema(BaseModel):

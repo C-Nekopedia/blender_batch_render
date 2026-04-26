@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useTerminal } from './composables/useTerminal'
 import { useSettings } from './composables/useSettings'
 import SystemInfo from './components/SystemInfo.vue'
 import TerminalConsole from './components/TerminalConsole.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 import StatsBar from './components/StatsBar.vue'
+import PreviewPanel from './components/PreviewPanel.vue'
+import type { PreviewFile } from './components/PreviewPanel.vue'
 
 const API_BASE = import.meta.env.VITE_API_BASE || ''
 
@@ -43,7 +45,8 @@ const {
 // =====================================================================
 // View navigation
 // =====================================================================
-const currentView = ref<'tasks' | 'system'>('tasks')
+const currentView = ref<'tasks' | 'system' | 'preview'>('tasks')
+const mobileMenuOpen = ref(false)
 const isRemote = computed(() => {
   const host = window.location.host
   return host !== 'localhost:34567' && !host.startsWith('127.')
@@ -59,6 +62,8 @@ const statProgress = ref('--%')
 const renderStartTime = ref<number | null>(null)
 const completedFrames = ref(0)
 let totalFramesCount = 0
+const previewFiles = ref<PreviewFile[]>([])
+const previewOutputDir = ref<string | null>(null)
 
 // =====================================================================
 // WebSocket connection
@@ -122,8 +127,11 @@ function connectWebSocket() {
 
         case 'error':
           writeError(msg.data.message)
-          renderStartTime.value = null
-          frameLineMap.clear()
+          break
+
+        case 'preview_update':
+          previewFiles.value = msg.data.files ?? []
+          previewOutputDir.value = msg.data.output_dir ?? null
           break
 
         case 'complete':
@@ -197,6 +205,8 @@ async function startRender() {
     frameLineMap.clear()
     renderStartTime.value = Date.now()
     completedFrames.value = 0
+    previewFiles.value = []
+    previewOutputDir.value = null
     totalFramesCount = endFrame.value - startFrame.value + 1
     statTime.value = '00:00:00'
     statProgress.value = '0%'
@@ -266,6 +276,15 @@ async function saveSettings() {
 }
 
 // =====================================================================
+// Request preview list when user switches to Preview tab
+// =====================================================================
+watch(currentView, (to) => {
+  if (to === 'preview' && ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'preview_init' }))
+  }
+})
+
+// =====================================================================
 // Lifecycle
 // =====================================================================
 onMounted(() => {
@@ -289,26 +308,48 @@ onUnmounted(() => {
         <div class="logo-dot"></div>
         <div>Batch Render</div>
       </div>
-      <div
-        class="nav-item"
-        :class="{ active: currentView === 'tasks' }"
-        @click="currentView = 'tasks'"
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="9" x2="15" y2="9"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="12" y2="17"/>
-        </svg>
-        <span>Tasks</span>
+
+      <!-- Navigation items -->
+      <div class="nav-group" :class="{ open: mobileMenuOpen }">
+        <div
+          class="nav-item"
+          :class="{ active: currentView === 'tasks' }"
+          @click="currentView = 'tasks'; mobileMenuOpen = false"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="9" x2="15" y2="9"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="12" y2="17"/>
+          </svg>
+          <span>Tasks</span>
+        </div>
+        <div
+          class="nav-item"
+          :class="{ active: currentView === 'preview' }"
+          @click="currentView = 'preview'; mobileMenuOpen = false"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/>
+            <path d="m21 15-5-5L5 21"/>
+          </svg>
+          <span>Preview</span>
+        </div>
+        <div
+          class="nav-item"
+          :class="{ active: currentView === 'system' }"
+          @click="currentView = 'system'; mobileMenuOpen = false"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+          <span>System</span>
+        </div>
       </div>
-      <div
-        class="nav-item"
-        :class="{ active: currentView === 'system' }"
-        @click="currentView = 'system'"
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+
+      <!-- Hamburger toggle (mobile only) -->
+      <button class="nav-menu-btn" @click="mobileMenuOpen = !mobileMenuOpen" aria-label="Navigation menu">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
         </svg>
-        <span>System</span>
-      </div>
+      </button>
     </aside>
 
     <!-- Main Content -->
@@ -353,6 +394,15 @@ onUnmounted(() => {
           :isRunning="isRunning"
         />
       </template>
+
+      <!-- Preview View -->
+      <div v-else-if="currentView === 'preview'" class="content">
+        <PreviewPanel
+          :files="previewFiles"
+          :outputDir="previewOutputDir"
+          :isRunning="isRunning"
+        />
+      </div>
 
       <!-- System Info View -->
       <SystemInfo v-else />
@@ -462,6 +512,22 @@ html, body {
   font-weight: 600;
 }
 
+.nav-group { display: flex; flex-direction: column; }
+
+.nav-menu-btn {
+  display: none;
+  background: none;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  cursor: pointer;
+  color: var(--text-body);
+  transition: all var(--transition);
+  line-height: 0;
+  flex-shrink: 0;
+}
+.nav-menu-btn:hover { background: #F1F5F9; border-color: var(--text-muted); }
+
 .main {
   flex: 1;
   display: flex;
@@ -520,6 +586,7 @@ html, body {
     height: auto;
     align-items: center;
     gap: 8px;
+    position: relative;
   }
   .logo {
     margin-bottom: 0;
@@ -531,15 +598,29 @@ html, body {
     width: 10px;
     height: 10px;
   }
-  .nav-item {
-    padding: 8px 10px;
-    font-size: 0.82rem;
+  .nav-menu-btn { display: flex; }
+  .nav-group {
+    display: none;
+    position: absolute;
+    top: 100%;
+    right: 8px;
+    min-width: 160px;
+    background: var(--card-bg);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+    padding: 4px;
+    z-index: 100;
+    flex-direction: column;
+  }
+  .nav-group.open { display: flex; }
+  .nav-group .nav-item {
+    padding: 10px 12px;
+    font-size: 0.85rem;
     margin-bottom: 0;
+    border-radius: 6px;
   }
-  .nav-item svg {
-    width: 14px;
-    height: 14px;
-  }
+  .nav-group .nav-item svg { width: 16px; height: 16px; }
   .main {
     padding: 16px;
     gap: 16px;
