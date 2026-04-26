@@ -27,7 +27,8 @@ DEFAULT_RENDER_TIMEOUT = 86400  # 24h safety net
 
 BATCH_OK = 0
 BATCH_ERROR = -1
-MAX_CRASH_RETRIES = 3
+RAPID_CRASH_INTERVAL = 60   # seconds — crashes outside this window don't count as rapid
+MAX_RAPID_CRASHES = 3
 
 # Regex patterns for Blender output parsing
 _FRAME_RE = re.compile(r"(?:Fra:|Frame:)\s*(\d+)", re.I)
@@ -269,7 +270,8 @@ class RenderEngine:
         self._process: subprocess.Popen | None = None
         self._stop_requested = False
         self._stop_heartbeat = threading.Event()
-        self._crash_count = 0
+        self._rapid_crashes = 0
+        self._last_crash_time = 0.0
 
     # ---- public API ----
 
@@ -478,20 +480,24 @@ class RenderEngine:
                 self.cb.on_error("Blender process timed out")
                 return BATCH_ERROR
             if code != 0:
-                self._crash_count += 1
+                now = time.time()
+                since_last = now - self._last_crash_time
+                if since_last <= RAPID_CRASH_INTERVAL:
+                    self._rapid_crashes += 1
+                else:
+                    self._rapid_crashes = 1
+                self._last_crash_time = now
+
                 self.cb.on_error(
-                    f"Blender crashed (exit {code}, attempt {self._crash_count}/{MAX_CRASH_RETRIES}) "
-                    f"batch {start}-{end}"
+                    f"Blender crashed (exit {code}, rapid {self._rapid_crashes}/{MAX_RAPID_CRASHES})"
                 )
-                if self._crash_count > MAX_CRASH_RETRIES:
-                    self.cb.on_error("Too many crashes — stopping render")
+                if self._rapid_crashes > MAX_RAPID_CRASHES:
+                    self.cb.on_error("Rapid crash loop detected — stopping render")
                     return BATCH_ERROR
                 if last_saved >= start:
-                    self.cb.on_error(f"Restarting from frame {last_saved + 1} after {self.config.restart_delay}s delay")
+                    self.cb.on_error(f"Restarting from frame {last_saved + 1} in {self.config.restart_delay}s")
                     return last_saved + 1
                 return BATCH_ERROR  # nothing saved this batch, can't resume
-
-            self._crash_count = 0  # reset on success
             return BATCH_OK
 
         except KeyboardInterrupt:
