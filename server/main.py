@@ -556,10 +556,6 @@ async def ws_endpoint(websocket: WebSocket):
             pass
         async with _render_lock:
             _connections.remove(websocket)
-            if not _connections and _engine is not None:
-                _engine.stop()
-                _engine = None
-                _render_state = RenderState.IDLE
 
 
 @app.get("/api/browse-file")
