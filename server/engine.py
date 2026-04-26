@@ -37,6 +37,10 @@ _TIME_RE = re.compile(r"(?:Time:|Render Time:)\s*([0-9:.]+)", re.I)
 _ZH_FRAME_RE = re.compile(r"帧号:\s*(\d+)")
 _RENDER_SAMPLE_RE = re.compile(r"Rendering\s+(\d+)\s*/\s*(\d+)\s+samples", re.I)
 
+# Blender error/warning patterns for capture and forwarding
+_ERROR_RE = re.compile(r"^\s*(?:Error\b|Traceback|FATAL|SystemError)", re.I)
+_GPU_ERROR_RE = re.compile(r"(?:out of (?:GPU )?memory|CUDA error|OpenCL error|Device .* not available)", re.I)
+
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -451,6 +455,12 @@ class RenderEngine:
                     if secs is not None:
                         state.time = secs
 
+                # -- error capture (forward to frontend for debugging) --
+                if _ERROR_RE.search(line):
+                    self.cb.on_error(line)
+                elif _GPU_ERROR_RE.search(line):
+                    self.cb.on_error(f"[GPU] {line}")
+
             try:
                 code = proc.wait(timeout=self.config.frame_timeout)
             except subprocess.TimeoutExpired:
@@ -458,7 +468,10 @@ class RenderEngine:
                 code = proc.wait(timeout=5)
                 self.cb.on_error("Blender process timed out")
                 return BATCH_ERROR
-            return BATCH_OK if code == 0 else BATCH_ERROR
+            if code != 0:
+                self.cb.on_error(f"Blender exited with code {code} (batch {start}-{end})")
+                return BATCH_ERROR
+            return BATCH_OK
 
         except KeyboardInterrupt:
             _stop_process(proc)
