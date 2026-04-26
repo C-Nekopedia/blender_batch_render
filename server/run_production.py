@@ -85,7 +85,10 @@ if __name__ == "__main__":
 
     # pythonw.exe → file logs; python.exe → console logs without ANSI colors
     if sys.executable.endswith("pythonw.exe"):
-        config = uvicorn.Config("server.main:app", log_level="info", log_config=_setup_logging())
+        config = uvicorn.Config(
+            "server.main:app", log_level="info", log_config=_setup_logging(),
+            ws_ping_interval=60, ws_ping_timeout=300,
+        )
     else:
         config = uvicorn.Config("server.main:app", log_level="info", log_config={
             "version": 1,
@@ -111,7 +114,9 @@ if __name__ == "__main__":
                 "uvicorn.error": {"handlers": ["default"], "level": "INFO", "propagate": False},
                 "uvicorn.access": {"handlers": ["access"], "level": "INFO", "propagate": False},
             },
-        })
+        },
+            ws_ping_interval=60, ws_ping_timeout=300,
+        )
 
     server = uvicorn.Server(config)
     server.run(sockets=sockets)
