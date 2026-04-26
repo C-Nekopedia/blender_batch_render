@@ -123,12 +123,6 @@ function connectWebSocket() {
         case 'error':
           writeError(msg.data.message)
           writeTerminal(`ERROR: ${msg.data.message}`, 'error')
-          // Crash auto-restart messages shouldn't stop the render
-          if (!msg.data.message?.includes('Restarting from frame')) {
-            isRunning.value = false
-            renderStartTime.value = null
-            frameLineMap.clear()
-          }
           renderStartTime.value = null
           frameLineMap.clear()
           break
@@ -345,7 +339,6 @@ onUnmounted(() => {
             v-model:restartDelay="restartDelay"
             v-model:crashLimit="crashLimit"
             v-model:crashWindow="crashWindow"
-            :isRunning="isRunning"
             :wsConnected="wsConnected"
             :remoteAccess="isRemote"
             @browseFile="browseFile"

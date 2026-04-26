@@ -10,7 +10,6 @@ const crashLimit = defineModel<number>('crashLimit', { required: true })
 const crashWindow = defineModel<number>('crashWindow', { required: true })
 
 defineProps<{
-  isRunning: boolean
   wsConnected: boolean
   remoteAccess: boolean
 }>()
@@ -99,10 +98,10 @@ const emit = defineEmits<{
       <button class="btn btn-save" @click="emit('save')">
         保存设置
       </button>
-      <button class="btn btn-primary" :disabled="isRunning || !wsConnected" @click="emit('startRender')">
+      <button class="btn btn-primary" @click="emit('startRender')">
         开始渲染
       </button>
-      <button class="btn btn-danger" :disabled="!isRunning" @click="emit('stopRender')">
+      <button class="btn btn-danger" @click="emit('stopRender')">
         停止渲染
       </button>
     </div>
