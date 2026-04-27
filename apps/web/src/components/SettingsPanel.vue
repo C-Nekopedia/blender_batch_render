@@ -8,6 +8,7 @@ const memThreshold = defineModel<number>('memThreshold', { required: true })
 const restartDelay = defineModel<number>('restartDelay', { required: true })
 const crashLimit = defineModel<number>('crashLimit', { required: true })
 const crashWindow = defineModel<number>('crashWindow', { required: true })
+const exrColorSpace = defineModel<string>('exrColorSpace', { required: true })
 
 defineProps<{
   wsConnected: boolean
@@ -60,12 +61,23 @@ const emit = defineEmits<{
         </div>
       </div>
 
+      <div class="form-section-title">EXR 输出设置（非EXR请无视）</div>
+
+      <div class="form-group">
+        <label class="form-label">色彩空间</label>
+        <select class="form-input form-select" v-model="exrColorSpace">
+          <option value="agx_log">AgX Log</option>
+          <option value="filmic_log">Filmic Log</option>
+          <option value="linear">Linear</option>
+        </select>
+        <span class="form-hint">请与工程文件设置保持一致</span>
+      </div>
+
       <div class="form-section-title">性能</div>
 
       <div class="form-group">
         <label class="form-label">批次大小</label>
         <input class="form-input" type="number" v-model.number="batchSize" min="1" max="500" />
-        <span class="form-hint">每批渲染的帧数，越大越省内存但启动开销更大</span>
       </div>
 
       <div class="form-group">
@@ -306,14 +318,17 @@ const emit = defineEmits<{
   .settings-body {
     padding: 14px;
   }
+
   .settings-actions {
     flex-direction: column;
     padding: 12px 14px;
     gap: 8px;
   }
+
   .settings-actions .btn {
     justify-content: center;
   }
+
   .panel-header {
     padding: 12px 14px;
   }

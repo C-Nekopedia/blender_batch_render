@@ -34,7 +34,7 @@ const {
   batchSize,
   memThreshold,
   restartDelay,
-  crashLimit, crashWindow,
+  crashLimit, crashWindow, exrColorSpace,
   loadSettings,
   saveSettingsToBackend,
   browseFile,
@@ -264,6 +264,7 @@ async function saveSettings() {
         batch: batchSize.value,
         memory_threshold: memThreshold.value,
         restart_delay: restartDelay.value,
+        exr_color_space: exrColorSpace.value,
       }),
     })
     if (!res.ok) {
@@ -385,6 +386,7 @@ onUnmounted(() => {
             v-model:restartDelay="restartDelay"
             v-model:crashLimit="crashLimit"
             v-model:crashWindow="crashWindow"
+            v-model:exrColorSpace="exrColorSpace"
             :wsConnected="wsConnected"
             :remoteAccess="isRemote"
             @browseFile="browseFile"

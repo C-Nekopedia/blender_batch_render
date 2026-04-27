@@ -12,6 +12,7 @@ export function useSettings() {
   const restartDelay = ref(5)
   const crashLimit = ref(3)      // max rapid crashes before giving up
   const crashWindow = ref(60)    // seconds — crashes outside this window reset counter
+  const exrColorSpace = ref('agx_log')  // 'linear' | 'agx_log' | 'filmic_log'
 
   async function loadSettings() {
     try {
@@ -27,6 +28,7 @@ export function useSettings() {
       if (data.restart_delay) restartDelay.value = data.restart_delay
       if (data.rapid_crash_limit != null) crashLimit.value = data.rapid_crash_limit
       if (data.rapid_crash_window != null) crashWindow.value = data.rapid_crash_window
+      if (data.exr_color_space) exrColorSpace.value = data.exr_color_space
     } catch {
       console.warn('Failed to load settings from backend')
     }
@@ -43,6 +45,7 @@ export function useSettings() {
       restart_delay: restartDelay.value,
       rapid_crash_limit: crashLimit.value,
       rapid_crash_window: crashWindow.value,
+      exr_color_space: exrColorSpace.value,
     }
     try {
       await fetch(`${API_BASE}/api/settings`, {
@@ -82,6 +85,7 @@ export function useSettings() {
       restart_delay: restartDelay.value,
       rapid_crash_limit: crashLimit.value,
       rapid_crash_window: crashWindow.value,
+      exr_color_space: exrColorSpace.value,
     }
   }
 
@@ -98,7 +102,7 @@ export function useSettings() {
 
   return {
     blenderPath, blendFile, startFrame, endFrame, batchSize, memThreshold, restartDelay,
-    crashLimit, crashWindow,
+    crashLimit, crashWindow, exrColorSpace,
     loadSettings, saveSettingsToBackend, browseFile, getRenderBody, validate,
   }
 }

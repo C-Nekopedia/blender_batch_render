@@ -918,7 +918,8 @@ def _make_thumbnail(src: Path, dst: Path, size: int = 320) -> bool:
     """Generate a WebP thumbnail. Returns False if EXR decode failed (no file written)."""
     ext = src.suffix.lower()
     if ext == '.exr':
-        ok = _convert_exr(src, dst, size)
+        cs = _settings_store.get('exr_color_space', 'agx_log')
+        ok = _convert_exr(src, dst, size, cs)
         if ok:
             _note_analyzed(src.name, _analyze_frame(dst))  # analyze from thumbnail
         return ok
@@ -956,41 +957,90 @@ def _placeholder_response(filename: str, size: int):
 
 
 def _read_exr(path: str):
-    """Read an EXR file as RGB float32. Tries cv2 first, then imageio.
+    """Read an EXR file as RGB float32. Tries cv2.imread first (ASCII paths),
+    then cv2.imdecode (Unicode paths where OpenCV decodes from memory),
+    finally imageio (pyav backend, uint8 fallback).
     Returns numpy array or None if unreadable."""
     import numpy as np
-
-    # 1. cv2 via imdecode — avoids OpenCV ANSI path limitation on Windows
     import cv2
+
+    # 1. cv2.imread — works for ASCII paths on all OpenCV builds
+    data = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+    if data is not None:
+        return data[:, :, ::-1].astype(np.float32)  # BGR -> RGB
+
+    # 2. cv2.imdecode — handles Unicode paths when OpenCV decodes from
+    #    memory directly. Some builds create temp files in %TEMP%, which
+    #    fails when the username contains non-ASCII characters. That's why
+    #    we try imread first — it always works for ASCII paths.
     try:
         raw = np.fromfile(path, dtype=np.uint8)
         data = cv2.imdecode(raw, cv2.IMREAD_UNCHANGED)
         if data is not None:
-            return data[:, :, ::-1].astype(np.float32)  # BGR -> RGB
+            return data[:, :, ::-1].astype(np.float32)
     except Exception:
         pass
 
-    # 2. imageio — wider format support
+    # 3. imageio via pyav — last resort for builds where cv2 fails entirely
     try:
         import imageio.v3 as iio
-        data = iio.imread(path)
+        import tempfile
+        tmp = Path(tempfile.gettempdir()) / f'_exr_tmp_{os.getpid()}.exr'
+        raw = np.fromfile(path, dtype=np.uint8)
+        raw.tofile(str(tmp))
+        data = iio.imread(str(tmp))
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
         if data is not None:
-            return data[:, :, :3].astype(np.float32)
+            data = np.squeeze(data)
+            if data.dtype == np.uint8:
+                data = data.astype(np.float32) / 255.0
+            if data.ndim == 3 and data.shape[2] >= 3:
+                return data[:, :, :3].astype(np.float32)
     except Exception:
         pass
 
     return None
 
 
-def _convert_exr(src: Path, dst: Path, size: int):
-    """Read EXR, apply ACES Filmic tone mapping, save as WebP.
-    Returns True on success, False if the file could not be decoded."""
+def _agx_log_to_linear(rgb):
+    """Inverse of Blender AgX Base Log transform.
+    AgX Log:  y = sign(x) * 0.5 * log2(|x| / 0.18 + 1)
+    Inverse:  x = sign(y) * 0.18 * (2^(|y| * 2) - 1)"""
+    import numpy as np
+    sign = np.sign(rgb)
+    mag = np.abs(rgb)
+    return sign * 0.18 * (np.power(2.0, mag * 2.0) - 1.0)
+
+
+def _filmic_log_to_linear(rgb):
+    """Inverse of Blender Filmic Log encoding.
+    Filmic Log:  y = sign(x) * log2(|x| / 0.18 + 1)
+    Inverse:     x = sign(y) * 0.18 * (2^|y| - 1)"""
+    import numpy as np
+    sign = np.sign(rgb)
+    mag = np.abs(rgb)
+    return sign * 0.18 * (np.power(2.0, mag) - 1.0)
+
+
+def _convert_exr(src: Path, dst: Path, size: int, color_space: str = 'agx_log'):
+    """Read EXR, apply inverse colour-space transform + ACES tone mapping,
+    save as WebP.  Returns True on success, False if the file couldn't be decoded."""
     import numpy as np
     from PIL import Image
 
     rgb = _read_exr(str(src))
     if rgb is None:
         return False
+
+    # Inverse colour-space → scene-linear
+    if color_space == 'agx_log':
+        rgb = _agx_log_to_linear(rgb)
+    elif color_space == 'filmic_log':
+        rgb = _filmic_log_to_linear(rgb)
+    # 'linear' — no transform needed
 
     # ACES Filmic tone mapping (Narkowicz 2015 fit)
     a, b, c, d, e = 2.51, 0.03, 2.43, 0.59, 0.14
@@ -1017,6 +1067,7 @@ class SettingsSchema(BaseModel):
     batch: int
     memory_threshold: float
     restart_delay: float
+    exr_color_space: str = 'agx_log'
 
 
 # ---------------------------------------------------------------------------
@@ -1041,6 +1092,8 @@ def _validate_settings(s: SettingsSchema) -> list[str]:
         errors.append("内存阈值应在 1-99 之间")
     if s.restart_delay < 1:
         errors.append("重启延迟不能小于 1 秒")
+    if s.exr_color_space not in ('linear', 'agx_log', 'filmic_log'):
+        errors.append("EXR 色彩空间无效，可选值: linear, agx_log, filmic_log")
     return errors
 
 
@@ -1071,6 +1124,7 @@ async def get_settings():
         "batch": DEFAULT_BATCH_SIZE,
         "memory_threshold": DEFAULT_MEMORY_THRESHOLD,
         "restart_delay": DEFAULT_RESTART_DELAY,
+        "exr_color_space": "agx_log",
     }
 
 

@@ -32,7 +32,7 @@ A browser-based tool for batch-rendering Blender scenes remotely. Queues multipl
 ## Prerequisites
 
 - Python 3.10+ (tested with 3.14)
-- Blender 3.6+ (any installation — standalone, Steam, or system install)
+- Blender (any installation — standalone, Steam, or system install)
 - Node.js 18+ and pnpm (only needed for first-time frontend build)
 
 ## Quick Start

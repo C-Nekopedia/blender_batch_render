@@ -7,11 +7,10 @@ REM /q flag suppresses the final pause (used when called from setup.bat)
 set QUIET=0
 if /i "%1"=="/q" set QUIET=1
 
-REM Skip build if dist already exists
-if exist "apps\web\dist\index.html" (
-    echo [build] Frontend already built, skipping.
-    if %QUIET% equ 0 pause
-    exit /b 0
+REM Remove old dist if it exists, then rebuild fresh
+if exist "apps\web\dist" (
+    echo [build] Removing old frontend build...
+    rmdir /s /q "apps\web\dist"
 )
 
 echo [build] Building frontend...
