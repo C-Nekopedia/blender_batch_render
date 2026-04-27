@@ -41,6 +41,16 @@ _RENDER_SAMPLE_RE = re.compile(r"Rendering\s+(\d+)\s*/\s*(\d+)\s+samples", re.I)
 _ERROR_RE = re.compile(r"^\s*(?:Error\b|Traceback|FATAL|SystemError)", re.I)
 _GPU_ERROR_RE = re.compile(r"(?:out of (?:GPU )?memory|CUDA error|OpenCL error|Device .* not available)", re.I)
 _MISSING_RE = re.compile(r"\b(?:missing|not found|no such file|unable to (?:find|open|load))\b", re.I)
+# False-positive errors in background mode — logged but NOT flagged as frame errors
+_FALSE_ERR_RE = re.compile(
+    r"(?:not freed memory|Cannot register|unregister|already registered|"
+    r"context is None|no context|win32|windows|console|"
+    r"SystemError|background mode|"
+    r"bpy\.app\.handlers|handler|"
+    r"Traceback\s*\(most recent call last\)|"
+    r"is not available in background)",
+    re.I,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -469,7 +479,10 @@ class RenderEngine:
 
                 # -- error capture (forward to frontend for debugging) --
                 if _ERROR_RE.search(line):
-                    self.cb.on_error(line, frame=state.frame)
+                    if _FALSE_ERR_RE.search(line):
+                        self.cb.on_error(f"[Noise] {line}")  # log but don't mark frame
+                    else:
+                        self.cb.on_error(line, frame=state.frame)
                 elif _GPU_ERROR_RE.search(line):
                     self.cb.on_error(f"[GPU] {line}", frame=state.frame)
                 elif _MISSING_RE.search(line):

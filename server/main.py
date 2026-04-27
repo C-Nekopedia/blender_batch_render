@@ -216,12 +216,6 @@ def _analyze_frame(src_path: Path) -> list[str]:
         if avg < 5.0 and std < 10.0:
             warnings.append("black")
 
-        # Missing texture magenta: R+B dominant over green
-        magenta_mask = (pixels[:, 0] + pixels[:, 2]) > 3 * pixels[:, 1] + 30
-        magenta_mask &= (pixels[:, 0] + pixels[:, 2]) > 60
-        if (not warnings) and magenta_mask.sum() / len(magenta_mask) > 0.3:
-            warnings.append("magenta")
-
         return warnings
     except Exception:
         return []

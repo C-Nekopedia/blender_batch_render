@@ -44,7 +44,7 @@ function fileWarnings(filename: string): string[] {
 function warnClass(filename: string): string {
   const ws = fileWarnings(filename)
   if (ws.includes('error')) return 'warn-error'
-  if (ws.includes('black') || ws.includes('magenta')) return 'warn-suspect'
+  if (ws.includes('black')) return 'warn-suspect'
   return ''
 }
 
