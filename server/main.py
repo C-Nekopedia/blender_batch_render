@@ -109,6 +109,8 @@ _render_lock = asyncio.Lock()
 # Preview state
 _output_dir: Path | None = None
 _preview_watcher: PreviewWatcher | None = None
+_preview_warnings: dict[str, list[str]] = {}       # filename -> ["black","magenta","error"]
+_pending_frame_errors: dict[int, str] = {}          # frame -> error message from render
 
 # Last-saved settings (in-memory, persists across page refreshes)
 _settings_store: dict = {}
@@ -134,13 +136,28 @@ def _ensure_preview_watcher(file_path: str, loop: asyncio.AbstractEventLoop):
 
 
 async def _broadcast_preview(files: list[dict]):
-    """Broadcast preview file list to all connected WebSocket clients."""
+    """Broadcast preview file list + current warnings to all connected WebSocket clients."""
     payload = {
         "type": "preview_update",
         "data": {
             "output_dir": str(_output_dir) if _output_dir else None,
             "files": files,
+            "warnings": dict(_preview_warnings),
         },
+        "timestamp": time.time(),
+    }
+    for ws in list(_connections):
+        try:
+            await ws.send_json(payload)
+        except Exception:
+            pass
+
+
+async def _broadcast_preview_warnings():
+    """Push updated warnings to all connected clients."""
+    payload = {
+        "type": "preview_warnings",
+        "data": {"warnings": dict(_preview_warnings)},
         "timestamp": time.time(),
     }
     for ws in list(_connections):
@@ -160,11 +177,68 @@ def _stop_watcher():
 
 def _reset_preview():
     """Full reset — stop watcher and clear output directory."""
-    global _output_dir, _preview_watcher
+    global _output_dir, _preview_watcher, _preview_warnings, _pending_frame_errors
     if _preview_watcher:
         _preview_watcher.stop()
         _preview_watcher = None
     _output_dir = None
+    _preview_warnings.clear()
+    _pending_frame_errors.clear()
+
+
+def _analyze_frame(src_path: Path) -> list[str]:
+    """Pixel-level analysis of a rendered frame.
+    Returns list of warning keys: 'black', 'magenta', or empty.
+    Downscales to 480px and samples up to 50K pixels.
+    """
+    try:
+        from PIL import Image
+        import numpy as np
+
+        img = Image.open(src_path).convert('RGB')
+        w, h = img.size
+        if w > 480:
+            img = img.resize((480, max(1, int(h * 480 / w))), Image.LANCZOS)
+        pixels = np.array(img, dtype=np.float32).reshape(-1, 3)
+
+        if len(pixels) > 50000:
+            step = max(len(pixels) // 50000, 1)
+            pixels = pixels[::step]
+
+        warnings: list[str] = []
+
+        # BT.601 luminance
+        lum = 0.299 * pixels[:, 0] + 0.587 * pixels[:, 1] + 0.114 * pixels[:, 2]
+        avg = lum.mean()
+        std = lum.std()
+
+        # Black frame: very dark AND uniform (prevents false positive on dark scenes)
+        if avg < 5.0 and std < 10.0:
+            warnings.append("black")
+
+        # Missing texture magenta: R+B dominant over green
+        magenta_mask = (pixels[:, 0] + pixels[:, 2]) > 3 * pixels[:, 1] + 30
+        magenta_mask &= (pixels[:, 0] + pixels[:, 2]) > 60
+        if (not warnings) and magenta_mask.sum() / len(magenta_mask) > 0.3:
+            warnings.append("magenta")
+
+        return warnings
+    except Exception:
+        return []
+
+
+def _note_analyzed(filename: str, warnings: list[str]):
+    """Record pixel-analysis warnings for a file and broadcast."""
+    if warnings:
+        prev = _preview_warnings.get(filename, [])
+        new = [w for w in warnings if w not in prev]
+        if new:
+            _preview_warnings[filename] = prev + new
+            try:
+                loop = asyncio.get_running_loop()
+                asyncio.run_coroutine_threadsafe(_broadcast_preview_warnings(), loop)
+            except RuntimeError:
+                pass
 
 
 # ---------------------------------------------------------------------------
@@ -263,6 +337,11 @@ class WebSocketCallbacks(RenderCallbacks):
 
     def on_frame_saved(self, frame: int, path: str, elapsed: float):
         _ensure_preview_watcher(path, self._loop)
+        # Resolve pending render-time errors for this frame
+        if frame in _pending_frame_errors:
+            filename = Path(path).name
+            _preview_warnings.setdefault(filename, []).append("error")
+            self._schedule_broadcast_warnings()
         self._send("frame_saved", frame=frame, path=path,
                     elapsed=round(elapsed, 1))
 
@@ -272,11 +351,21 @@ class WebSocketCallbacks(RenderCallbacks):
     def on_memory_restart(self, next_frame: int, note: str):
         self._send("memory_restart", next_frame=next_frame, note=note)
 
-    def on_error(self, msg: str):
+    def on_error(self, msg: str, frame: int | None = None):
+        if frame is not None:
+            _pending_frame_errors[frame] = msg
         self._send("error", message=msg)
 
     def on_complete(self):
         self._send("complete")
+
+    @staticmethod
+    def _schedule_broadcast_warnings():
+        try:
+            loop = asyncio.get_running_loop()
+            asyncio.run_coroutine_threadsafe(_broadcast_preview_warnings(), loop)
+        except RuntimeError:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -627,6 +716,7 @@ async def ws_endpoint(websocket: WebSocket):
                         "data": {
                             "output_dir": str(_output_dir) if _output_dir else None,
                             "files": files,
+                            "warnings": dict(_preview_warnings),
                         },
                         "timestamp": time.time(),
                     })
@@ -735,10 +825,9 @@ async def serve_preview_file(path: str, thumb: bool = False):
         if not cache_path.exists() or cache_path.stat().st_mtime < requested.stat().st_mtime:
             cache_dir.mkdir(exist_ok=True)
             loop = asyncio.get_running_loop()
-            try:
-                await loop.run_in_executor(None, _make_thumbnail, requested, cache_path, size)
-            except OSError:
-                raise HTTPException(415, "Cannot decode this image file")
+            ok = await loop.run_in_executor(None, _make_thumbnail, requested, cache_path, size)
+            if not ok:
+                return _placeholder_response(requested.name, size)
         return FileResponse(cache_path, media_type='image/webp')
 
     media = {
@@ -754,17 +843,45 @@ async def serve_preview_file(path: str, thumb: bool = False):
     return FileResponse(requested, media_type=media[ext])
 
 
-def _make_thumbnail(src: Path, dst: Path, size: int = 320):
-    """Generate a WebP thumbnail from an image file. EXR files are tone-mapped."""
+def _make_thumbnail(src: Path, dst: Path, size: int = 320) -> bool:
+    """Generate a WebP thumbnail. Returns False if EXR decode failed (no file written)."""
     ext = src.suffix.lower()
     if ext == '.exr':
-        if not _convert_exr(src, dst, size):
-            raise OSError(f"Cannot decode EXR: {src}")
-    else:
-        from PIL import Image
-        img = Image.open(src)
-        img.thumbnail((size, size), Image.LANCZOS)
-        img.save(str(dst), 'webp', quality=75)
+        ok = _convert_exr(src, dst, size)
+        if ok:
+            _note_analyzed(src.name, _analyze_frame(dst))  # analyze from thumbnail
+        return ok
+    from PIL import Image
+    img = Image.open(src)
+    _note_analyzed(src.name, _analyze_frame(src))  # analyze from original
+    img.thumbnail((size, size), Image.LANCZOS)
+    img.save(str(dst), 'webp', quality=75)
+    return True
+
+
+def _placeholder_response(filename: str, size: int):
+    """Return a StreamingResponse with a dark placeholder card for unreadable images."""
+    from io import BytesIO
+    from PIL import Image, ImageDraw, ImageFont
+    from starlette.responses import StreamingResponse
+
+    h = max(1, int(size * 9 / 16))
+    img = Image.new('RGB', (size, h), (22, 24, 30))
+    draw = ImageDraw.Draw(img)
+    try:
+        font = ImageFont.truetype('consola.ttf', max(10, size // 16))
+    except Exception:
+        font = ImageFont.load_default()
+    lines = [filename, "Cannot preview"]
+    for i, line in enumerate(lines):
+        bbox = draw.textbbox((0, 0), line, font=font)
+        x = (size - (bbox[2] - bbox[0])) // 2
+        y = h // 4 + i * (h // 4)
+        draw.text((x, y), line, fill=(120, 124, 128) if i == 0 else (80, 84, 88), font=font)
+    buf = BytesIO()
+    img.save(buf, 'webp', quality=60)
+    buf.seek(0)
+    return StreamingResponse(buf, media_type='image/webp')
 
 
 def _read_exr(path: str):
@@ -772,13 +889,17 @@ def _read_exr(path: str):
     Returns numpy array or None if unreadable."""
     import numpy as np
 
-    # 1. cv2 — fast, covers ZIP/PIZ/RLE/uncompressed
+    # 1. cv2 via imdecode — avoids OpenCV ANSI path limitation on Windows
     import cv2
-    data = cv2.imread(path, cv2.IMREAD_UNCHANGED)
-    if data is not None:
-        return data[:, :, ::-1].astype(np.float32)  # BGR -> RGB
+    try:
+        raw = np.fromfile(path, dtype=np.uint8)
+        data = cv2.imdecode(raw, cv2.IMREAD_UNCHANGED)
+        if data is not None:
+            return data[:, :, ::-1].astype(np.float32)  # BGR -> RGB
+    except Exception:
+        pass
 
-    # 2. imageio — wider format support (e.g. DWAB/DWAA via FreeImage)
+    # 2. imageio — wider format support
     try:
         import imageio.v3 as iio
         data = iio.imread(path)

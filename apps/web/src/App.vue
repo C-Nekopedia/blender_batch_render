@@ -64,6 +64,7 @@ const completedFrames = ref(0)
 let totalFramesCount = 0
 const previewFiles = ref<PreviewFile[]>([])
 const previewOutputDir = ref<string | null>(null)
+const previewWarnings = ref<Record<string, string[]>>({})
 
 // =====================================================================
 // WebSocket connection
@@ -132,6 +133,11 @@ function connectWebSocket() {
         case 'preview_update':
           previewFiles.value = msg.data.files ?? []
           previewOutputDir.value = msg.data.output_dir ?? null
+          previewWarnings.value = msg.data.warnings ?? {}
+          break
+
+        case 'preview_warnings':
+          previewWarnings.value = msg.data.warnings ?? {}
           break
 
         case 'complete':
@@ -401,6 +407,7 @@ onUnmounted(() => {
           :files="previewFiles"
           :outputDir="previewOutputDir"
           :isRunning="isRunning"
+          :warnings="previewWarnings"
         />
       </div>
 

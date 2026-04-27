@@ -4,6 +4,7 @@ image files in the Blender output directory.
 """
 import os
 import re
+import time
 import threading
 from pathlib import Path
 
@@ -24,39 +25,54 @@ def _parse_frame(filename: str) -> int:
 
 
 class _DebouncedHandler(FileSystemEventHandler):
-    """Fires callback after a quiet period with no filesystem events."""
+    """Fires callback after a quiet period with no filesystem events.
+    Uses a polling loop instead of threading.Timer to avoid
+    cancel/wake race conditions on Windows.
+    """
 
     def __init__(self, callback, delay: float = 0.6):
         self._callback = callback
         self._delay = delay
-        self._timer: threading.Timer | None = None
+        self._last_event = 0.0
+        self._lock = threading.Lock()
+        self._running = True
+        self._thread = threading.Thread(target=self._poll, daemon=True)
+        self._thread.start()
 
-    def _reset_timer(self):
-        if self._timer:
-            self._timer.cancel()
-        self._timer = threading.Timer(self._delay, self._callback)
-        self._timer.start()
+    def _note_event(self):
+        with self._lock:
+            self._last_event = time.monotonic()
+
+    def _poll(self):
+        while self._running:
+            with self._lock:
+                since = time.monotonic() - self._last_event
+            if self._last_event > 0 and since >= self._delay:
+                self._last_event = 0.0
+                try:
+                    self._callback()
+                except Exception:
+                    pass
+            time.sleep(0.15)
 
     def on_created(self, event):
         if not event.is_directory:
-            self._reset_timer()
+            self._note_event()
 
     def on_modified(self, event):
         if not event.is_directory:
-            self._reset_timer()
+            self._note_event()
 
     def on_moved(self, event):
         if not event.is_directory:
-            self._reset_timer()
+            self._note_event()
 
     def on_deleted(self, event):
         if not event.is_directory:
-            self._reset_timer()
+            self._note_event()
 
     def stop(self):
-        if self._timer:
-            self._timer.cancel()
-            self._timer = None
+        self._running = False
 
 
 class PreviewWatcher:
@@ -121,5 +137,5 @@ def scan_directory(directory: Path) -> list[dict]:
             })
     except Exception:
         pass
-    files.sort(key=lambda f: f['frame'])
+    files.sort(key=lambda f: f['filename'])
     return files

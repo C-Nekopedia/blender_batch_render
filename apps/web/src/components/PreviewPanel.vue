@@ -12,6 +12,7 @@ const props = defineProps<{
   files: PreviewFile[]
   outputDir: string | null
   isRunning: boolean
+  warnings: Record<string, string[]>
 }>()
 
 const PAGE_SIZE = 20
@@ -35,6 +36,16 @@ const lightboxFile = computed(() => {
 function imageUrl(filename: string, thumb = false): string {
   const qs = `path=${encodeURIComponent(filename)}`
   return thumb ? `/api/preview-file?${qs}&thumb=true` : `/api/preview-file?${qs}`
+}
+
+function fileWarnings(filename: string): string[] {
+  return props.warnings[filename] ?? []
+}
+function warnClass(filename: string): string {
+  const ws = fileWarnings(filename)
+  if (ws.includes('error')) return 'warn-error'
+  if (ws.includes('black') || ws.includes('magenta')) return 'warn-suspect'
+  return ''
 }
 
 function formatSize(bytes: number): string {
@@ -143,12 +154,18 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         <div class="image-wrapper">
           <img
             :src="imageUrl(file.filename, true)"
-            :alt="`Frame ${file.frame}`"
+            :alt="file.filename"
             loading="lazy"
           />
+          <div
+            v-if="fileWarnings(file.filename).length > 0"
+            class="warn-dot"
+            :class="warnClass(file.filename)"
+            :title="fileWarnings(file.filename).join(', ')"
+          ></div>
         </div>
         <div class="image-info">
-          <span class="frame-label">Frame {{ file.frame }}</span>
+          <span class="frame-label">{{ file.filename }}</span>
           <span class="frame-size">{{ formatSize(file.size) }}</span>
         </div>
       </div>
@@ -207,7 +224,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         <div class="lightbox-image-wrapper">
           <img
             :src="imageUrl(lightboxFile.filename)"
-            :alt="`Frame ${lightboxFile.frame}`"
+            :alt="lightboxFile.filename"
           />
         </div>
 
@@ -219,7 +236,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
         <div class="lightbox-footer">
           <span>{{ lightboxFile.filename }}</span>
-          <span>Frame {{ lightboxFile.frame }} — {{ formatSize(lightboxFile.size) }}</span>
+          <span>{{ formatSize(lightboxFile.size) }}</span>
         </div>
       </div>
     </Teleport>
@@ -316,6 +333,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
 }
 
 .image-wrapper img {
@@ -324,6 +342,18 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   object-fit: cover;
   transition: transform 0.3s ease;
 }
+.warn-dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(0,0,0,0.4);
+  z-index: 2;
+}
+.warn-error  { background: #EF4444; }
+.warn-suspect { background: #F59E0B; }
 
 .image-card:hover .image-wrapper img {
   transform: scale(1.05);

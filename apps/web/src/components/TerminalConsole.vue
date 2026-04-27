@@ -204,6 +204,7 @@ watch(() => props.terminalLines, () => {
 @media (max-width: 768px) {
   .terminal {
     min-height: 400px;
+    max-height: 400px;
   }
   .panel-header {
     padding: 12px 16px;

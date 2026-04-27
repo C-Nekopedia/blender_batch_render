@@ -40,6 +40,7 @@ _RENDER_SAMPLE_RE = re.compile(r"Rendering\s+(\d+)\s*/\s*(\d+)\s+samples", re.I)
 # Blender error/warning patterns for capture and forwarding
 _ERROR_RE = re.compile(r"^\s*(?:Error\b|Traceback|FATAL|SystemError)", re.I)
 _GPU_ERROR_RE = re.compile(r"(?:out of (?:GPU )?memory|CUDA error|OpenCL error|Device .* not available)", re.I)
+_MISSING_RE = re.compile(r"\b(?:missing|not found|no such file|unable to (?:find|open|load))\b", re.I)
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +113,7 @@ class RenderCallbacks:
     def on_frame_saved(self, frame: int, path: str, elapsed: float): ...
     def on_batch_start(self, start: int, end: int): ...
     def on_memory_restart(self, next_frame: int, note: str): ...
-    def on_error(self, msg: str): ...
+    def on_error(self, msg: str, frame: int | None = None): ...
     def on_complete(self): ...
 
 
@@ -468,9 +469,11 @@ class RenderEngine:
 
                 # -- error capture (forward to frontend for debugging) --
                 if _ERROR_RE.search(line):
-                    self.cb.on_error(line)
+                    self.cb.on_error(line, frame=state.frame)
                 elif _GPU_ERROR_RE.search(line):
-                    self.cb.on_error(f"[GPU] {line}")
+                    self.cb.on_error(f"[GPU] {line}", frame=state.frame)
+                elif _MISSING_RE.search(line):
+                    self.cb.on_error(f"[Missing] {line}", frame=state.frame)
 
             try:
                 code = proc.wait(timeout=self.config.frame_timeout)
