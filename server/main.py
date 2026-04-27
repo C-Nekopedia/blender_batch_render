@@ -12,6 +12,7 @@ import logging
 import socket
 import subprocess
 import sys
+import threading
 import time
 
 from concurrent.futures import ThreadPoolExecutor
@@ -110,7 +111,8 @@ _render_lock = asyncio.Lock()
 _output_dir: Path | None = None
 _preview_watcher: PreviewWatcher | None = None
 _preview_warnings: dict[str, list[str]] = {}       # filename -> ["black","missing"]
-_pending_frame_warnings: dict[int, list[str]] = {}  # frame -> warning types from render
+_pending_frame_warnings: dict[int, list[str]] = {}  # frame -> warning types (per-frame)
+_batch_warnings: set[str] = set()                   # persistent warnings for all frames this render
 
 # Last-saved settings (in-memory, persists across page refreshes)
 _settings_store: dict = {}
@@ -129,6 +131,7 @@ def _ensure_preview_watcher(file_path: str, loop: asyncio.AbstractEventLoop):
     if _output_dir is not None:
         return
     _output_dir = Path(file_path).parent
+    _load_warnings()  # restore persisted warnings from previous renders
     _preview_watcher = PreviewWatcher(_output_dir)
     _preview_watcher.start(lambda files: asyncio.run_coroutine_threadsafe(
         _broadcast_preview(files), loop
@@ -184,6 +187,7 @@ def _reset_preview():
     _output_dir = None
     _preview_warnings.clear()
     _pending_frame_warnings.clear()
+    _batch_warnings.clear()
 
 
 def _analyze_frame(src_path: Path) -> list[str]:
@@ -222,17 +226,79 @@ def _analyze_frame(src_path: Path) -> list[str]:
 
 
 def _note_analyzed(filename: str, warnings: list[str]):
-    """Record pixel-analysis warnings for a file and broadcast."""
-    if warnings:
-        prev = _preview_warnings.get(filename, [])
-        new = [w for w in warnings if w not in prev]
-        if new:
-            _preview_warnings[filename] = prev + new
-            try:
-                loop = asyncio.get_running_loop()
-                asyncio.run_coroutine_threadsafe(_broadcast_preview_warnings(), loop)
-            except RuntimeError:
-                pass
+    """Record pixel-analysis warnings for a file, broadcast, and persist."""
+    _add_warnings(filename, warnings)
+
+
+def _add_warnings(filename: str, warnings: list[str]):
+    """Record warnings for a file, broadcast, and schedule persistence."""
+    if not warnings:
+        return
+    prev = _preview_warnings.get(filename, [])
+    new = [w for w in warnings if w not in prev]
+    if new:
+        _preview_warnings[filename] = prev + new
+        _schedule_save_warnings()
+        try:
+            loop = asyncio.get_running_loop()
+            asyncio.run_coroutine_threadsafe(_broadcast_preview_warnings(), loop)
+        except RuntimeError:
+            pass
+
+
+_save_timer: threading.Timer | None = None
+
+def _schedule_save_warnings():
+    """Debounced save — delays 2s after last warning change before writing."""
+    global _save_timer
+    if _save_timer:
+        _save_timer.cancel()
+    _save_timer = threading.Timer(2.0, _save_warnings)
+    _save_timer.start()
+
+
+def _warnings_path() -> Path | None:
+    """Path to the warnings JSON file, if output dir is known."""
+    if _output_dir is None:
+        return None
+    cache_dir = _output_dir / ".thumb_cache"
+    return cache_dir / "warnings.json"
+
+
+def _save_warnings():
+    """Persist _preview_warnings to .thumb_cache/warnings.json."""
+    p = _warnings_path()
+    if p is None:
+        return
+    try:
+        import json
+        p.parent.mkdir(exist_ok=True)
+        p.write_text(json.dumps(dict(_preview_warnings), ensure_ascii=False, indent=2),
+                     encoding='utf-8')
+    except Exception:
+        pass
+
+
+def _load_warnings():
+    """Load persisted warnings from .thumb_cache/warnings.json.
+    Prunes entries for files that no longer exist.
+    """
+    global _preview_warnings
+    p = _warnings_path()
+    if p is None or not p.is_file():
+        return
+    try:
+        import json
+        data = json.loads(p.read_text(encoding='utf-8'))
+    except Exception:
+        return
+    # Only keep warnings for files that still exist
+    pruned = {}
+    for filename, ws in data.items():
+        if (_output_dir / filename).is_file():
+            pruned[filename] = ws
+    if pruned:
+        _preview_warnings.update(pruned)
 
 
 # ---------------------------------------------------------------------------
@@ -331,12 +397,17 @@ class WebSocketCallbacks(RenderCallbacks):
 
     def on_frame_saved(self, frame: int, path: str, elapsed: float):
         _ensure_preview_watcher(path, self._loop)
-        # Resolve pending render-time warnings for this frame
+        filename = Path(path).name
+        changed = False
+        # Apply batch-level warnings (missing assets etc.) to every frame
+        if _batch_warnings:
+            _add_warnings(filename, list(_batch_warnings))
+            changed = True
+        # Apply per-frame warnings (frame-specific errors)
         if frame in _pending_frame_warnings:
-            filename = Path(path).name
-            _preview_warnings.setdefault(filename, []).extend(
-                _pending_frame_warnings.pop(frame)
-            )
+            _add_warnings(filename, _pending_frame_warnings.pop(frame))
+            changed = True
+        if changed:
             self._schedule_broadcast_warnings()
         self._send("frame_saved", frame=frame, path=path,
                     elapsed=round(elapsed, 1))
@@ -351,7 +422,10 @@ class WebSocketCallbacks(RenderCallbacks):
         self._send("error", message=msg)
 
     def on_frame_warning(self, frame: int, wtype: str):
-        _pending_frame_warnings.setdefault(frame, []).append(wtype)
+        if frame <= 0:
+            _batch_warnings.add(wtype)           # scene-loading → all frames
+        else:
+            _pending_frame_warnings.setdefault(frame, []).append(wtype)
 
     def on_complete(self):
         self._send("complete")

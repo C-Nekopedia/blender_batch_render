@@ -40,7 +40,11 @@ _RENDER_SAMPLE_RE = re.compile(r"Rendering\s+(\d+)\s*/\s*(\d+)\s+samples", re.I)
 # Blender error/warning patterns for capture and forwarding (console logging only)
 _ERROR_RE = re.compile(r"^\s*(?:Error\b|Traceback|FATAL|SystemError)", re.I)
 _GPU_ERROR_RE = re.compile(r"(?:out of (?:GPU )?memory|CUDA error|OpenCL error|Device .* not available)", re.I)
-_MISSING_RE = re.compile(r"\b(?:missing|not found|no such file|unable to (?:find|open|load))\b", re.I)
+_MISSING_RE = re.compile(
+    r"\b(?:missing|not found|no such file|unable to (?:find|open|load)"
+    r"|Failed to create GPU texture)\b",
+    re.I,
+)
 
 
 # ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 
 export interface PreviewFile {
   filename: string
@@ -18,9 +18,13 @@ const props = defineProps<{
 const PAGE_SIZE = 20
 const COLUMNS = 5
 
-const currentPage = ref(1)
 const lightboxIndex = ref<number | null>(null)
 const activeTab = ref<'all' | 'errors'>('all')
+const tabPage = ref<Record<string, number>>({ all: 1, errors: 1 })
+const currentPage = computed({
+  get: () => tabPage.value[activeTab.value] ?? 1,
+  set: (v) => { tabPage.value[activeTab.value] = v },
+})
 
 const errorFiles = computed(() =>
   props.files.filter(f => (props.warnings[f.filename]?.length ?? 0) > 0)
@@ -106,10 +110,15 @@ function onGridWheel(e: WheelEvent) {
   else if (e.deltaY < 0) prevPage()
 }
 
+// Clamp page when switching tabs (saved page may exceed other tab's total)
+watch(activeTab, () => {
+  if (currentPage.value > totalPages.value) currentPage.value = totalPages.value
+})
+
 // Reset page when files change (new render started)
 const prevLen = ref(0)
 if (props.files.length === 0 && prevLen.value > 0) {
-  currentPage.value = 1
+  tabPage.value = { all: 1, errors: 1 }
 }
 prevLen.value = props.files.length
 
@@ -136,10 +145,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
     <!-- Tab bar -->
     <div class="preview-tab-bar">
-      <button class="preview-tab" :class="{ active: activeTab === 'all' }" @click="activeTab = 'all'; currentPage = 1">
+      <button class="preview-tab" :class="{ active: activeTab === 'all' }" @click="activeTab = 'all'">
         All
       </button>
-      <button class="preview-tab" :class="{ active: activeTab === 'errors' }" @click="activeTab = 'errors'; currentPage = 1">
+      <button class="preview-tab" :class="{ active: activeTab === 'errors' }" @click="activeTab = 'errors'">
         Errors
         <span v-if="errorFiles.length > 0" class="preview-tab-badge">{{ errorFiles.length }}</span>
       </button>
@@ -182,7 +191,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     </div>
 
     <!-- Pagination -->
-    <div v-if="displayedFiles.length > PAGE_SIZE" class="pagination">
+    <div v-if="displayedFiles.length > 0" class="pagination">
       <button class="page-btn" :disabled="currentPage === 1" @click="prevPage">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="m15 18-6-6 6-6"/>
