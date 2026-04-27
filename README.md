@@ -22,6 +22,7 @@ A browser-based tool for batch-rendering Blender scenes remotely. Queues multipl
 
 - **Batch render** — renders frames in configurable batches, restarting Blender between batches to manage memory
 - **Memory-aware** — monitors system memory and auto-restarts when a threshold is exceeded
+- **Error frame detection** — automatic black-frame and missing-texture flagging with dedicated Errors view
 - **Preview panel** — real-time grid preview of rendered frames; EXR supported via ACES tone mapping
 - **Web UI** — Vue 3 frontend with terminal console, tabbed error log, system stats, and live preview
 - **Remote access** — connect from any device via IPv6 (direct) or Tailscale (fallback)
@@ -156,6 +157,9 @@ Check `logs\error.log` for details. Common causes: incorrect Python path, missin
 
 **Why do EXR previews look different from Photoshop?**
 EXR files are HDR float format that browsers cannot display natively. The tool converts them to WebP using ACES Filmic tone mapping (the same algorithm used by Blender's viewport), which may differ from Photoshop's display settings. Full-precision original files remain untouched.
+
+**How are error frames detected?**
+Two mechanisms: (1) pixel analysis detects black frames (average brightness < 2% with minimal deviation); (2) Blender log parsing catches missing textures and GPU errors ("missing", "not found", "CUDA error", etc.). Flagged frames show a red dot in the preview grid and can be viewed in the Errors-only tab.
 
 **Preview not refreshing when files are added/removed?**
 The watcher monitors `on_created`, `on_modified`, `on_moved`, and `on_deleted` events. Switch to the Preview tab to trigger a re-scan (`preview_init` message). If files were added while the server was stopped, they will appear on the first scan.

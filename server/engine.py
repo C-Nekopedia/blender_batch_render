@@ -37,20 +37,10 @@ _TIME_RE = re.compile(r"(?:Time:|Render Time:)\s*([0-9:.]+)", re.I)
 _ZH_FRAME_RE = re.compile(r"帧号:\s*(\d+)")
 _RENDER_SAMPLE_RE = re.compile(r"Rendering\s+(\d+)\s*/\s*(\d+)\s+samples", re.I)
 
-# Blender error/warning patterns for capture and forwarding
+# Blender error/warning patterns for capture and forwarding (console logging only)
 _ERROR_RE = re.compile(r"^\s*(?:Error\b|Traceback|FATAL|SystemError)", re.I)
 _GPU_ERROR_RE = re.compile(r"(?:out of (?:GPU )?memory|CUDA error|OpenCL error|Device .* not available)", re.I)
 _MISSING_RE = re.compile(r"\b(?:missing|not found|no such file|unable to (?:find|open|load))\b", re.I)
-# False-positive errors in background mode — logged but NOT flagged as frame errors
-_FALSE_ERR_RE = re.compile(
-    r"(?:not freed memory|Cannot register|unregister|already registered|"
-    r"context is None|no context|win32|windows|console|"
-    r"SystemError|background mode|"
-    r"bpy\.app\.handlers|handler|"
-    r"Traceback\s*\(most recent call last\)|"
-    r"is not available in background)",
-    re.I,
-)
 
 
 # ---------------------------------------------------------------------------
@@ -123,7 +113,8 @@ class RenderCallbacks:
     def on_frame_saved(self, frame: int, path: str, elapsed: float): ...
     def on_batch_start(self, start: int, end: int): ...
     def on_memory_restart(self, next_frame: int, note: str): ...
-    def on_error(self, msg: str, frame: int | None = None): ...
+    def on_error(self, msg: str): ...
+    def on_frame_warning(self, frame: int, wtype: str): ...
     def on_complete(self): ...
 
 
@@ -477,16 +468,15 @@ class RenderEngine:
                     if secs is not None:
                         state.time = secs
 
-                # -- error capture (forward to frontend for debugging) --
+                # -- error capture (forward to frontend console) --
                 if _ERROR_RE.search(line):
-                    if _FALSE_ERR_RE.search(line):
-                        self.cb.on_error(f"[Noise] {line}")  # log but don't mark frame
-                    else:
-                        self.cb.on_error(line, frame=state.frame)
+                    self.cb.on_error(line)
                 elif _GPU_ERROR_RE.search(line):
-                    self.cb.on_error(f"[GPU] {line}", frame=state.frame)
+                    self.cb.on_error(f"[GPU] {line}")
+                    self.cb.on_frame_warning(state.frame, "missing")
                 elif _MISSING_RE.search(line):
-                    self.cb.on_error(f"[Missing] {line}", frame=state.frame)
+                    self.cb.on_error(f"[Missing] {line}")
+                    self.cb.on_frame_warning(state.frame, "missing")
 
             try:
                 code = proc.wait(timeout=self.config.frame_timeout)

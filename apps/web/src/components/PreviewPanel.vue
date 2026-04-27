@@ -20,17 +20,24 @@ const COLUMNS = 5
 
 const currentPage = ref(1)
 const lightboxIndex = ref<number | null>(null)
+const activeTab = ref<'all' | 'errors'>('all')
 
-const totalPages = computed(() => Math.max(1, Math.ceil(props.files.length / PAGE_SIZE)))
+const errorFiles = computed(() =>
+  props.files.filter(f => (props.warnings[f.filename]?.length ?? 0) > 0)
+)
+const displayedFiles = computed(() =>
+  activeTab.value === 'errors' ? errorFiles.value : props.files
+)
+const totalPages = computed(() => Math.max(1, Math.ceil(displayedFiles.value.length / PAGE_SIZE)))
 
 const pageFiles = computed(() => {
   const start = (currentPage.value - 1) * PAGE_SIZE
-  return props.files.slice(start, start + PAGE_SIZE)
+  return displayedFiles.value.slice(start, start + PAGE_SIZE)
 })
 
 const lightboxFile = computed(() => {
   if (lightboxIndex.value === null) return null
-  return props.files[lightboxIndex.value] ?? null
+  return displayedFiles.value[lightboxIndex.value] ?? null
 })
 
 function imageUrl(filename: string, thumb = false): string {
@@ -41,20 +48,13 @@ function imageUrl(filename: string, thumb = false): string {
 function fileWarnings(filename: string): string[] {
   return props.warnings[filename] ?? []
 }
-function warnClass(filename: string): string {
-  const ws = fileWarnings(filename)
-  if (ws.includes('error')) return 'warn-error'
-  if (ws.includes('black')) return 'warn-suspect'
-  return ''
+function hasWarnings(filename: string): boolean {
+  return fileWarnings(filename).length > 0
 }
 
 function formatSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function openLightbox(index: number) {
-  lightboxIndex.value = index
 }
 
 function closeLightbox() {
@@ -64,12 +64,12 @@ function closeLightbox() {
 function prevImage() {
   if (lightboxIndex.value === null) return
   if (lightboxIndex.value > 0) lightboxIndex.value--
-  else lightboxIndex.value = props.files.length - 1
+  else lightboxIndex.value = displayedFiles.value.length - 1
 }
 
 function nextImage() {
   if (lightboxIndex.value === null) return
-  if (lightboxIndex.value < props.files.length - 1) lightboxIndex.value++
+  if (lightboxIndex.value < displayedFiles.value.length - 1) lightboxIndex.value++
   else lightboxIndex.value = 0
 }
 
@@ -131,16 +131,27 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     <div class="preview-header">
       <span>Preview</span>
       <span v-if="outputDir" class="output-path" :title="outputDir">{{ outputDir }}</span>
-      <span class="file-count">{{ files.length }} frame{{ files.length !== 1 ? 's' : '' }}</span>
+      <span class="file-count">{{ displayedFiles.length }} frame{{ displayedFiles.length !== 1 ? 's' : '' }}</span>
+    </div>
+
+    <!-- Tab bar -->
+    <div class="preview-tab-bar">
+      <button class="preview-tab" :class="{ active: activeTab === 'all' }" @click="activeTab = 'all'; currentPage = 1">
+        All
+      </button>
+      <button class="preview-tab" :class="{ active: activeTab === 'errors' }" @click="activeTab = 'errors'; currentPage = 1">
+        Errors
+        <span v-if="errorFiles.length > 0" class="preview-tab-badge">{{ errorFiles.length }}</span>
+      </button>
     </div>
 
     <!-- Empty state -->
-    <div v-if="files.length === 0" class="empty-state">
+    <div v-if="displayedFiles.length === 0" class="empty-state">
       <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
         <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/>
         <path d="m21 15-5-5L5 21"/>
       </svg>
-      <span>{{ isRunning ? 'Waiting for first frame...' : 'No images — start a render first' }}</span>
+      <span>{{ isRunning ? 'Waiting for first frame...' : activeTab === 'errors' ? 'No error frames' : 'No images — start a render first' }}</span>
     </div>
 
     <!-- Grid -->
@@ -149,7 +160,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         v-for="(file, i) in pageFiles"
         :key="file.filename"
         class="image-card"
-        @click="openLightbox((currentPage - 1) * PAGE_SIZE + i)"
+        @click="lightboxIndex = (currentPage - 1) * PAGE_SIZE + i"
       >
         <div class="image-wrapper">
           <img
@@ -158,9 +169,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             loading="lazy"
           />
           <div
-            v-if="fileWarnings(file.filename).length > 0"
+            v-if="hasWarnings(file.filename)"
             class="warn-dot"
-            :class="warnClass(file.filename)"
             :title="fileWarnings(file.filename).join(', ')"
           ></div>
         </div>
@@ -172,7 +182,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     </div>
 
     <!-- Pagination -->
-    <div v-if="files.length > PAGE_SIZE" class="pagination">
+    <div v-if="displayedFiles.length > PAGE_SIZE" class="pagination">
       <button class="page-btn" :disabled="currentPage === 1" @click="prevPage">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="m15 18-6-6 6-6"/>
@@ -350,10 +360,48 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   height: 10px;
   border-radius: 50%;
   border: 1.5px solid rgba(0,0,0,0.4);
+  background: #EF4444;
   z-index: 2;
 }
-.warn-error  { background: #EF4444; }
-.warn-suspect { background: #F59E0B; }
+
+/* Preview tab bar */
+.preview-tab-bar {
+  display: flex;
+  align-items: center;
+  border-bottom: 1.5px solid var(--border);
+  padding: 0 8px;
+  flex-shrink: 0;
+  background: #F8FAFC;
+}
+.preview-tab {
+  padding: 8px 16px;
+  border: none;
+  background: none;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1.5px;
+  transition: all var(--transition);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.preview-tab:hover { color: var(--text-title); }
+.preview-tab.active {
+  color: var(--brand);
+  border-bottom-color: var(--brand);
+}
+.preview-tab-badge {
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 10px;
+  line-height: 1.4;
+}
 
 .image-card:hover .image-wrapper img {
   transform: scale(1.05);

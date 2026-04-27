@@ -109,8 +109,8 @@ _render_lock = asyncio.Lock()
 # Preview state
 _output_dir: Path | None = None
 _preview_watcher: PreviewWatcher | None = None
-_preview_warnings: dict[str, list[str]] = {}       # filename -> ["black","magenta","error"]
-_pending_frame_errors: dict[int, str] = {}          # frame -> error message from render
+_preview_warnings: dict[str, list[str]] = {}       # filename -> ["black","missing"]
+_pending_frame_warnings: dict[int, list[str]] = {}  # frame -> warning types from render
 
 # Last-saved settings (in-memory, persists across page refreshes)
 _settings_store: dict = {}
@@ -183,7 +183,7 @@ def _reset_preview():
         _preview_watcher = None
     _output_dir = None
     _preview_warnings.clear()
-    _pending_frame_errors.clear()
+    _pending_frame_warnings.clear()
 
 
 def _analyze_frame(src_path: Path) -> list[str]:
@@ -331,10 +331,12 @@ class WebSocketCallbacks(RenderCallbacks):
 
     def on_frame_saved(self, frame: int, path: str, elapsed: float):
         _ensure_preview_watcher(path, self._loop)
-        # Resolve pending render-time errors for this frame
-        if frame in _pending_frame_errors:
+        # Resolve pending render-time warnings for this frame
+        if frame in _pending_frame_warnings:
             filename = Path(path).name
-            _preview_warnings.setdefault(filename, []).append("error")
+            _preview_warnings.setdefault(filename, []).extend(
+                _pending_frame_warnings.pop(frame)
+            )
             self._schedule_broadcast_warnings()
         self._send("frame_saved", frame=frame, path=path,
                     elapsed=round(elapsed, 1))
@@ -345,10 +347,11 @@ class WebSocketCallbacks(RenderCallbacks):
     def on_memory_restart(self, next_frame: int, note: str):
         self._send("memory_restart", next_frame=next_frame, note=note)
 
-    def on_error(self, msg: str, frame: int | None = None):
-        if frame is not None:
-            _pending_frame_errors[frame] = msg
+    def on_error(self, msg: str):
         self._send("error", message=msg)
+
+    def on_frame_warning(self, frame: int, wtype: str):
+        _pending_frame_warnings.setdefault(frame, []).append(wtype)
 
     def on_complete(self):
         self._send("complete")
