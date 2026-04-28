@@ -60,6 +60,13 @@ defineProps<{
 @media (max-width: 768px) {
   .stats-bar {
     padding: 10px 16px;
+    position: sticky;
+    bottom: 0;
+    z-index: 10;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
   }
   .stat-item {
     min-width: 60px;

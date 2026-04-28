@@ -149,7 +149,18 @@ function connectWebSocket() {
           break
 
         case 'system_stats':
-          if (renderStartTime.value) {
+          if (msg.data.render_elapsed != null) {
+            // Backend provides authoritative render progress —
+            // survives WebSocket reconnects without losing timer state
+            isRunning.value = true
+            statTime.value = formatElapsed(msg.data.render_elapsed)
+            renderStartTime.value = Date.now() - msg.data.render_elapsed * 1000
+            if (msg.data.total_frames > 0) {
+              completedFrames.value = msg.data.completed_frames
+              totalFramesCount = msg.data.total_frames
+              statProgress.value = `${Math.round((msg.data.completed_frames / msg.data.total_frames) * 100)}%`
+            }
+          } else if (renderStartTime.value) {
             statTime.value = formatElapsed((Date.now() - renderStartTime.value) / 1000)
           }
           break

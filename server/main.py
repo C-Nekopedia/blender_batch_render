@@ -104,6 +104,8 @@ app.add_middleware(
 _engine: RenderEngine | None = None
 _connections: list[WebSocket] = []
 _render_state = RenderState.IDLE
+_render_start_time: float | None = None
+_completed_frames_count: int = 0
 _executor = ThreadPoolExecutor(max_workers=1)
 _render_lock = asyncio.Lock()
 
@@ -396,6 +398,8 @@ class WebSocketCallbacks(RenderCallbacks):
                     sample_total=sample_total, elapsed=round(elapsed, 1), mem=mem)
 
     def on_frame_saved(self, frame: int, path: str, elapsed: float):
+        global _completed_frames_count
+        _completed_frames_count += 1
         _ensure_preview_watcher(path, self._loop)
         filename = Path(path).name
         changed = False
@@ -660,10 +664,12 @@ def _render_wrapper(engine: RenderEngine, loop: asyncio.AbstractEventLoop):
 
 async def _finish_render():
     """Transition state back to IDLE after render completes/stops."""
-    global _engine, _render_state
+    global _engine, _render_state, _render_start_time, _completed_frames_count
     async with _render_lock:
         _engine = None
         _render_state = RenderState.IDLE
+        _render_start_time = None
+        _completed_frames_count = 0
     _stop_watcher()
 
 
@@ -680,19 +686,32 @@ async def _stats_pusher(ws: WebSocket) -> None:
     """Background task: push CPU/GPU/memory stats over WS every 2 seconds.
     Blocking system calls are offloaded to the thread pool via run_in_executor
     so they don't block the event loop (and delay render progress delivery).
+
+    When a render is active, each message also carries authoritative render
+    progress so the frontend can recover correct state after a reconnect.
     """
     loop = asyncio.get_event_loop()
     try:
         while True:
             cpu, gpu, mem = await loop.run_in_executor(None, _collect_stats)
+
+            # Build data payload — include render progress when running
+            data: dict = {
+                "cpu": round(cpu, 1) if cpu is not None else None,
+                "gpu": round(gpu, 1) if gpu is not None else None,
+                "memory": round(mem, 1) if mem is not None else None,
+            }
+
+            if _render_start_time is not None and _engine is not None:
+                data["render_elapsed"] = round(time.time() - _render_start_time, 1)
+                data["completed_frames"] = _completed_frames_count
+                cfg = _engine.config
+                data["total_frames"] = cfg.end - cfg.start + 1
+
             try:
                 await ws.send_json({
                     "type": "system_stats",
-                    "data": {
-                        "cpu": round(cpu, 1) if cpu is not None else None,
-                        "gpu": round(gpu, 1) if gpu is not None else None,
-                        "memory": round(mem, 1) if mem is not None else None,
-                    },
+                    "data": data,
                     "timestamp": time.time(),
                 })
             except Exception:
@@ -708,7 +727,7 @@ async def _stats_pusher(ws: WebSocket) -> None:
 
 @app.post("/render/start")
 async def start_render(cfg: RenderConfigSchema):
-    global _engine, _render_state
+    global _engine, _render_state, _render_start_time, _completed_frames_count
 
     _reset_preview()  # clear previous render's output dir
 
@@ -737,6 +756,8 @@ async def start_render(cfg: RenderConfigSchema):
         engine = RenderEngine(config, callbacks)
         _engine = engine
         _render_state = RenderState.RUNNING
+        _render_start_time = time.time()
+        _completed_frames_count = 0
 
     # Offload to thread pool; wrapper cleans up _engine when done
     loop.run_in_executor(_executor, _render_wrapper, engine, loop)
@@ -759,6 +780,25 @@ async def stop_render():
     return {"status": "stopped"}
 
 
+async def _send_preview_state(ws: WebSocket) -> None:
+    """Push current preview file list + warnings to a single client."""
+    if _preview_watcher:
+        files = _preview_watcher.files
+    elif _output_dir is not None:
+        files = scan_directory(_output_dir)
+    else:
+        files = []
+    await ws.send_json({
+        "type": "preview_update",
+        "data": {
+            "output_dir": str(_output_dir) if _output_dir else None,
+            "files": files,
+            "warnings": dict(_preview_warnings),
+        },
+        "timestamp": time.time(),
+    })
+
+
 @app.websocket("/ws")
 async def ws_endpoint(websocket: WebSocket):
     global _engine, _render_state, _connections
@@ -770,27 +810,17 @@ async def ws_endpoint(websocket: WebSocket):
 
     stats_task = asyncio.create_task(_stats_pusher(websocket))
 
+    # Send current preview state immediately so reconnecting clients
+    # recover their preview without needing to switch tabs
+    await _send_preview_state(websocket)
+
     try:
         while True:
             raw = await websocket.receive_text()
             try:
                 msg = json.loads(raw)
                 if msg.get("type") == "preview_init":
-                    if _preview_watcher:
-                        files = _preview_watcher.files
-                    elif _output_dir is not None:
-                        files = scan_directory(_output_dir)
-                    else:
-                        files = []
-                    await websocket.send_json({
-                        "type": "preview_update",
-                        "data": {
-                            "output_dir": str(_output_dir) if _output_dir else None,
-                            "files": files,
-                            "warnings": dict(_preview_warnings),
-                        },
-                        "timestamp": time.time(),
-                    })
+                    await _send_preview_state(websocket)
             except (json.JSONDecodeError, RuntimeError):
                 pass
     except WebSocketDisconnect:
