@@ -45,6 +45,13 @@ _MISSING_RE = re.compile(
     r"|Failed to create GPU texture)\b",
     re.I,
 )
+# False-positive exclusion: Python runtime errors like
+#   'FAILED' not found in ('RUNNING_MODAL', 'CANCELLED', ...)
+#   class INCEPTION_OT_plugin ... incompatible return value
+_FALSE_MISSING_RE = re.compile(
+    r"(?:incompatible return value|not found in \()",
+    re.I,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -478,7 +485,7 @@ class RenderEngine:
                 elif _GPU_ERROR_RE.search(line):
                     self.cb.on_error(f"[GPU] {line}")
                     self.cb.on_frame_warning(state.frame, "missing")
-                elif _MISSING_RE.search(line):
+                elif _MISSING_RE.search(line) and not _FALSE_MISSING_RE.search(line):
                     self.cb.on_error(f"[Missing] {line}")
                     self.cb.on_frame_warning(state.frame, "missing")
 
